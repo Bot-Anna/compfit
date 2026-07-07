@@ -75,18 +75,12 @@ subpopulations are visually shown as boxes, or *compartments*, and the
 flows between them are indicated by arrows, compare with the depiction
 below.
 
-```{r sir-diagram, echo = FALSE, results = "asis"}
-# PLACEHOLDER SIR diagram — edit colours/labels to taste. Rendered to a static
-# inline SVG: a live DiagrammeR htmlwidget fails under pkgdown's article build.
-DiagrammeR::grViz("
-digraph SIR {
-  graph [rankdir = LR]
-  node  [shape = box, style = filled, fontname = Helvetica, fillcolor = '#EEEEEE']
-  S; I; R
-  S -> I
-  I -> R
-}
-") |> DiagrammeRsvg::export_svg() |> htmltools::HTML() |> cat()
+```{r sir-diagram, echo = FALSE, out.width = "40%"}
+# SIR diagram: a pre-rendered static SVG. Calling DiagrammeR::grViz() at render
+# time (even piped to export_svg) registers an htmlwidget and breaks pkgdown's
+# article build, so the SVG is committed instead. To change the graph, edit the
+# DOT and regenerate with DiagrammeRsvg::export_svg(DiagrammeR::grViz(...)).
+knitr::include_graphics("sir-diagram.svg")
 ```
 
 To describe how the subpopulations change over time in size, we rewrite
@@ -100,17 +94,10 @@ $$\begin{align}
 this information to some extent by adding the parameters governing the
 flows above the arrow.
 
-```{r sir-diagram-params, echo = FALSE}
-# PLACEHOLDER SIR diagram with the flow parameters on the arrows.
-DiagrammeR::grViz("
-digraph SIR {
-  graph [rankdir = LR]
-  node  [shape = box, style = filled, fontname = Helvetica, fillcolor = '#EEEEEE']
-  S; I; R
-  S -> I [label = 'β']
-  I -> R [label = 'γ']
-}
-", width = 440, height = 130)
+```{r sir-diagram-params, echo = FALSE, out.width = "40%"}
+# SIR diagram with the flow parameters on the arrows: pre-rendered static SVG
+# (see the note on the sir-diagram chunk above).
+knitr::include_graphics("sir-diagram-params.svg")
 ```
 
 Note that some of the parameters can intuitively be understood as
