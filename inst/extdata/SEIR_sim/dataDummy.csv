@@ -1,0 +1,6 @@
+"Label","Formula"
+"Susceptible","X1"
+"Exposed","X2"
+"Infectious","X3"
+"Recovered","X4"
+"Attack rate","(X2+X3+X4)/(X1+X2+X3+X4)"

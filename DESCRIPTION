@@ -1,0 +1,58 @@
+Package: compfit
+Title: Fit, Analyse and Compare Compartmental ODE Models (R + Julia)
+Version: 0.1.0
+Authors@R:
+    person("Anna", "Bot", role = c("aut", "cre"),
+           email = "anna.bot@outlook.com",
+           comment = c(ORCID = "0000-0001-7803-1518"))
+Description: Build compartmental (SIR-type) ODE models from a spreadsheet
+    specification, fit them by maximum likelihood (L-BFGS-B / DEoptim /
+    hypercube) or Bayesian sampling, and analyse the results: posterior
+    summaries, prior-vs-posterior and predictive plots, global (Sobol) and
+    local (derivative) sensitivity, practical identifiability, and
+    self-contained code export (counterfactual scenario analysis is planned for
+    a future release). ODE solves and Bayesian sampling
+    run in Julia via the JuliaCall bridge for speed (and gradient-based NUTS
+    sampling), but Julia is optional: a pure-R backend (deSolve, with
+    gradient-free MCMC for the Bayesian case) fits without it, and a Stan
+    backend (rstan) offers gradient-based NUTS with no Julia.
+License: GPL (>= 3)
+Encoding: UTF-8
+SystemRequirements: Julia (>= 1.6); Julia packages OrdinaryDiffEq, Turing,
+    Distributions (installed on first setup_julia()).
+Imports:
+    deSolve,
+    ggplot2,
+    grid,
+    readxl,
+    DEoptim,
+    pracma,
+    qrng,
+    grDevices,
+    stats,
+    utils
+Suggests:
+    JuliaCall,
+    diffeqr,
+    testthat (>= 3.0.0),
+    sensitivity,
+    patchwork,
+    writexl,
+    openxlsx,
+    readr,
+    arrow,
+    jsonlite,
+    xml2,
+    scales,
+    beepr,
+    BayesianTools,
+    coda,
+    rstan,
+    knitr,
+    rmarkdown,
+    DiagrammeR,
+    DiagrammeRsvg,
+    svglite
+VignetteBuilder: knitr
+Config/testthat/edition: 3
+RoxygenNote: 7.3.2

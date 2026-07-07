@@ -1,0 +1,5 @@
+"Label","Formula"
+"Susceptible","X1"
+"Infected","X2"
+"Recovered","X3"
+"Total","X1+X2+X3"

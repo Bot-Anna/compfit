@@ -1,0 +1,63 @@
+# Build the pkgdown site (incl. the SIR tutorial article, which runs live on the
+# pure-R backend) and deploy it to GitHub Pages. Adapted from the standard
+# r-lib/actions pkgdown workflow.
+#
+# One-time setup on GitHub after this file is pushed (GitHub Pages needs a
+# PUBLIC repo on the free plan, and the Actions token must have write access:
+# Settings -> Actions -> General -> Workflow permissions -> Read and write):
+#   Settings -> Pages -> Build and deployment -> Source: "Deploy from a branch"
+#   -> Branch: gh-pages / (root).
+# This workflow builds the site and pushes it to the gh-pages branch, which
+# Pages then serves at https://<owner>.github.io/compfit/ on every push to the
+# default branch.
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+name: pkgdown.yaml
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  pkgdown:
+    runs-on: ubuntu-latest
+    # Only deploy on pushes to the default branch / releases, not on PRs.
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-pandoc@v2
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      # Install hard deps AND Suggests (deSolve, BayesianTools, coda, DEoptim)
+      # so the tutorial's R-backend MLE and Bayesian chunks execute. Julia is
+      # NOT installed: the article uses solver_control(backend = "r").
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          dependencies: '"all"'
+          extra-packages: any::pkgdown, local::.
+          needs: website
+
+      - name: Build site
+        run: pkgdown::build_site_github_pages(new_process = FALSE, install = FALSE)
+        shell: Rscript {0}
+
+      - name: Deploy to GitHub Pages
+        if: github.event_name != 'pull_request'
+        uses: JamesIves/github-pages-deploy-action@v4.5.0
+        with:
+          clean: false
+          branch: gh-pages
+          folder: docs

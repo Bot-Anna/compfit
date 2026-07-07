@@ -1,0 +1,70 @@
+name: unit-tests
+
+# Runs the pure-R unit tests (testthat) on every push / PR. These need only the
+# R-side package dependencies -- no Julia -- so they finish quickly. The
+# integration tests (Julia + scenario workbooks) auto-skip here: setup_julia()
+# fails without a Julia runtime and th_have_setup() turns that into a skip.
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'   # weekly (Mon 06:00 UTC): exercises the Julia path
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: release
+
+      - name: Install dependencies
+        uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: |
+            any::testthat
+            any::devtools
+
+      - name: Run unit tests
+        run: Rscript -e 'testthat::test_local(filter = "unit", stop_on_failure = TRUE)'
+
+  # Julia integration tests (real ODE solves + Turing/NUTS sampling). Slow
+  # (Turing precompiles on first use) and occasionally flaky on CI, so it does
+  # NOT run on pushes/PRs -- only on the weekly schedule and on manual dispatch
+  # (Actions tab -> Run workflow). Keeps the Julia path exercised without gating
+  # everyday pushes or reddening the commit status.
+  julia:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Julia
+        uses: julia-actions/setup-julia@v2
+        with:
+          version: '1.10'
+
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: release
+
+      - name: Install R dependencies
+        uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: |
+            any::testthat
+            any::devtools
+            any::JuliaCall
+            any::deSolve
+            any::BayesianTools
+
+      - name: Install Julia packages and run integration tests
+        run: |
+          Rscript -e 'devtools::load_all("."); setup_julia(); testthat::test_local(filter = "integration", stop_on_failure = TRUE)'

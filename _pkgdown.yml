@@ -1,0 +1,28 @@
+# Set this to your published site once the GitHub repo exists, e.g.
+#   url: https://YOURNAME.github.io/compfit
+# Leaving it unset (~) still builds; setting it enables proper cross-links,
+# search, and social-card metadata.
+url: ~
+
+template:
+  bootstrap: 5
+  math-rendering: katex
+
+# The Reference index is auto-generated from the exported functions.
+# Build the site locally with pkgdown::build_site(); output goes to docs/
+# (git-ignored). CI rebuilds and deploys it on every push (see
+# .github/workflows/pkgdown.yaml).
+
+navbar:
+  structure:
+    left:  [intro, tutorial, reference, articles, news]
+    right: [search, github]
+  components:
+    tutorial:
+      text: SIR tutorial
+      href: articles/sir-tutorial.html
+
+# No custom `articles:` block: pkgdown auto-generates the Articles index from
+# vignettes/articles/. (A manual `contents: - sir-tutorial` breaks the build --
+# pkgdown parses each entry as an R expression, and the hyphen makes
+# `sir-tutorial` evaluate as `sir - tutorial`.)

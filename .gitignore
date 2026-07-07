@@ -1,0 +1,35 @@
+# Fit checkpoints / saved fits
+checkpoint_best_solution.rds
+*_checkpoint*.rds
+Saved fits/
+
+# Test scratch output
+tests/**/Plots/
+tests/tmp/
+
+# Excel lock/temp files
+~$*.xlsx
+
+# R session artifacts
+.Rhistory
+.RData
+.Rproj.user/
+*.Rproj
+
+# OS cruft
+.DS_Store
+
+# Claude Code machine-local settings
+.claude/settings.local.json
+docs/
+
+# knitr caches from pkgdown articles (build artifacts)
+vignettes/articles/*_cache/
+vignettes/articles/*_files/
+
+# stray default-device plot output
+Rplots.pdf
+
+# knitr render artifacts (tutorial article)
+/cache/
+/figure/

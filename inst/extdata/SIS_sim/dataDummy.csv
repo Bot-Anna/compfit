@@ -1,0 +1,4 @@
+"Label","Formula"
+"Susceptible","X1"
+"Infected","X2"
+"Prevalence","X2/(X1+X2)"

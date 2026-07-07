@@ -1,0 +1,3 @@
+Label,Formula,Likelihood,Weight,Average,2015,2016,2017,2018,2019,2020
+Infected (X2),X2,gaussian,1,1,10,80,200,150,60,20
+Recovered (X3),X3,gaussian,1,1,5,60,250,500,700,850

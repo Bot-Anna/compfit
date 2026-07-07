@@ -1,0 +1,5 @@
+"_Level1","Others","States","Functions","Parameters","Conditions","Linear1","Quadratic1","Linear2","Quadratic2"
+"1","startpoint=2015","*X1=100","","*k=0.3","","-k","0","k","0"
+"2","endpoint=2020","*X2=0","","*m=0.2","","0","0","-m","0"
+"","partition=4","","","","","","0","","0"
+"","cutoff=2015","","","","","","0","","0"

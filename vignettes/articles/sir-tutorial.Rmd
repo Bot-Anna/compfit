@@ -1,0 +1,592 @@
+---
+title: "Fitting an SIR model with compfit"
+author: "Anna Bot"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+editor_options:
+  markdown:
+    wrap: 72
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>",
+  message  = FALSE,     # the R Bayes backend prints a loud caveat; surface it in prose instead
+  warning  = FALSE,
+  fig.width  = 7,
+  fig.height = 4.5,
+  dev = "svglite",      # vector SVG via svglite (no cairo/X11 needed); crisp on every device when hosted
+  cache = TRUE          # heavy chunks (the fits) are cached; delete sir-tutorial_cache/ to force a rerun
+)
+library(compfit)
+set.seed(1)
+options(rmarkdown.html_vignette.check_title = FALSE)  # this is a pkgdown article, not a shipped vignette
+```
+
+## Introduction
+
+Compartmental models are a fantastic tool to better understand how
+epidemics or within-host dynamics of a virus unfold. Either you test
+some hypothesis of how the dynamics change if you wiggle a parameter or
+some initial conditions, or you want to figure out some unknown
+parameters by fitting the model to actual data. If you have less than
+ten compartments, there's usually no hassle in editing some details here
+and there, be that in the model set-up or in the loss function used for
+calibration. But, in fields like HIV research, where you need
+stratifications according to clinical and behavioural markers, it
+becomes cumbersome quite fast to go into your many lines of R code to
+figure out where you need to change what. Not to mention when you want
+to adapt a parameter to be time-varying as piecewise constant, or
+linear, or any function, really.
+
+This was the starting point for designing the package `compfit`. Instead
+of maintaining (and struggling through) many lines of code and multiple
+versions of the same model, it reduces the set-up to three csv or Excel
+files, which encode the model structure, the parameters and states, as
+well as any data used by the model. This way, one can cleanly iterate on
+model versions and try out adaptations in a clean fashion.
+
+### Who this package is for
+
+This package was designed for a spectrum of users, with the two extremes
+being 
+
+- a user who knows basic R and has a compartmental model they want
+to run or calibrate without the overhead of the entire machinery going
+into it, and 
+- an experienced user who wants the flexibility and ease
+of the package but who also wants to fall back on the actual code if
+need be. 
+
+If there is any functionality you're missing, get in touch!
+
+## The example: Susceptible-Infected-Recovered (SIR)
+
+The core functionalities are exemplified using one of the most known
+compartmental models, the SIR model. It is used to model the dynamics
+and development of an epidemic, be that influenza, COVID-19, measles,
+and many more. The population is split into the three subpopulations of
+susceptible, infected and recovered individuals. A susceptible
+indiviudal becomes infected when interacting with an infected
+individual, and an infected individual is recovered after a certain
+amount of time; these are the flows between the subpopulations. The
+subpopulations are visually shown as boxes, or *compartments*, and the
+flows between them are indicated by arrows, compare with the depiction
+below.
+
+```{r sir-diagram, echo = FALSE, results = "asis"}
+# PLACEHOLDER SIR diagram — edit colours/labels to taste. Rendered to a static
+# inline SVG: a live DiagrammeR htmlwidget fails under pkgdown's article build.
+DiagrammeR::grViz("
+digraph SIR {
+  graph [rankdir = LR]
+  node  [shape = box, style = filled, fontname = Helvetica, fillcolor = '#EEEEEE']
+  S; I; R
+  S -> I
+  I -> R
+}
+") |> DiagrammeRsvg::export_svg() |> htmltools::HTML() |> cat()
+```
+
+To describe how the subpopulations change over time in size, we rewrite
+this into ordinary differential equations (ODEs):
+
+$$\begin{align}
+\tfrac{dS}{dt} &= -\beta SI \\
+\tfrac{dI}{dt} &= \beta SI - \gamma I \\
+\tfrac{dR}{dt} &= \gamma I
+\end{align}$$ The corresponding figure we designed before can capture
+this information to some extent by adding the parameters governing the
+flows above the arrow.
+
+```{r sir-diagram-params, echo = FALSE}
+# PLACEHOLDER SIR diagram with the flow parameters on the arrows.
+DiagrammeR::grViz("
+digraph SIR {
+  graph [rankdir = LR]
+  node  [shape = box, style = filled, fontname = Helvetica, fillcolor = '#EEEEEE']
+  S; I; R
+  S -> I [label = 'β']
+  I -> R [label = 'γ']
+}
+", width = 440, height = 130)
+```
+
+Note that some of the parameters can intuitively be understood as
+"moving an individual from one compartment to the next by this rate"
+(i.e. the $\gamma$ term), but someone from the $S$ compartment is moved
+to the $I$ compartment by way of a $\beta I$ term, involving the size of
+the infected compartment. This makes complete epidemiological sense; but
+mathematically it complicates solving this system of equations, and most
+of the time we thus need numerical approaches, especially when the
+compartmental model consists of many more compartments with multiple
+infection terms.
+
+You can imagine that this model cannot capture the dynamics of every
+infectious disease. For HIV, for example, it makes sense to split it up
+into susceptibles ($S$), acute infection ($A$), chronic infection ($C$),
+diagnosed and under treatment ($T$). In that case, you also have many
+more transmission terms between the susceptibles and all people living
+with HIV; important to note is that after transmission, no matter which
+compartment it was due, they always move to the compartment of acute
+infections. The equations then may look like
+
+$$\begin{align}
+\tfrac{dS}{dt} &= -\beta_A SA-\beta_C SC - \beta_T ST \\
+\tfrac{dA}{dt} &= \beta_A SA+\beta_C SC + \beta_T ST -\gamma_A A \\
+\tfrac{dC}{dt} &= \gamma_A A -\gamma_C C \\
+\tfrac{dT}{dt} &= \gamma_C C
+\end{align}$$
+
+You can extend this model in arbitrary ways, to fit the infectious
+disease that you are interested in. To actually *solve* it
+mathematically in R or Python, you need the values of the parameters
+involved as well as the sizes of the compartments at time $0$. Usually,
+one sets up a pipeline to either 
+
+1. see how the model develops for
+different values (meaning one knows all the parameters and initial
+values), or 
+2. figure out the parameters and initial values needed to
+explain epidemiological data, which we call **model fitting** from now
+on. 
+
+The second objective is very common when you know part of the
+parameters and initial values, and want the model to best describe the
+data you have. For the HIV example, one can assume a certain value for
+the infection terms; indeed, under successful treatment, $\beta_T = 0$.
+We can also say that the acute infection is over after a fairly fixed
+amount of time, giving $\gamma_A$. But it is difficult to know the
+diagnosis and treatment rate $\gamma_C$.
+
+For both objectives, you'd set up the equations in a model function, and
+then solve it using `ode()` from the package `deSolve`, or by a similar
+method. For model fitting, you'd then set up a loss function based on
+this compartmental model function and run `optim()` over it for a
+maximum likelihood estimation (MLE). If instead one leans Bayesian, then
+one sets priors on the unknown parameters and initial states, as well as
+the likelihood families for the data one has, and then builds a Stan
+model or similar.
+
+This is heavy machinery. And heavy machinery means multiple lines of
+code to maintain, which is, as said before, very cumbersome. So instead,
+below, based on the SIR model, I will outline the functionalities of
+`compfit` that bundle up what one wants from simulation, or MLE/Bayes
+model fitting.
+
+## Encoding the set-up
+
+First, install and load `compfit`.
+
+```{r library, eval = FALSE}
+# install.packages("remotes")
+remotes::install_github("OWNER/compfit")
+library(compfit)
+```
+
+The input for the functions of `compfit` consists of three csv files (or
+Excel): 1. The model structure, parameters and states encoded in
+**modelParams.csv**. 2. The data points used for model fitting and
+plotting in **dataCombined.csv** (which is optional if one only wants to
+simulate!). 3. The dummy compartments used for inspecting the output of
+either a simulation or a model fit, in **dataDummy.csv**. The three
+files should be stored in the same folder, which we call "Scenario". We
+read it in using the custom `load_scenario()` function.
+
+```{r load-scenario}
+sir_dir <- system.file("extdata", "SIR", package = "compfit")
+
+sc <- load_scenario(
+  sir_dir,
+  combined_file = "dataCombined.csv",
+  dummy_file    = "dataDummy.csv",
+  params_file   = "modelParams.csv"
+)
+```
+
+Using the read-in files, we discuss what needs (and what can) go into
+the model files
+
+### Model structure
+
+The file consists of required columns, as well as optional columns.
+
+#### Required
+
+- States
+- Parameters
+- Constant, Linear\<i\>, Quadratic\<i\>
+- Others
+
+```{r show-modelParams-required, results='asis', echo = FALSE}
+options(knitr.kable.NA = "")   # show blank cells as blank rather than "NA"
+req_cols <- c("States", "Parameters",
+              "Linear1", "Quadratic1", "Linear2", "Quadratic2",
+              "Linear3", "Quadratic3", "Others")
+tbl <- knitr::kable(sc$modelParams[, req_cols], format = "html")  # escapes <, >, &
+tbl <- gsub("*", "&ast;", tbl, fixed = TRUE)   # literal * -> entity, so Markdown doesn't read it as italics
+# nowrap keeps entries like -(gamma_t) on one line; the scroll box handles the width
+cat('<style>.cf-modeltable td, .cf-modeltable th { white-space: nowrap; }</style>')
+cat('<div class="cf-modeltable" style="overflow-x:auto">', tbl, '</div>', sep = "")
+```
+
+The **States** column encodes the compartments of the model. In this
+example we opted for calling them X1, X2, X3 corresponding to S, I, R,
+but you could equally call them S, I, R directly. To keep it well
+organised, we rewrite the SIR model equations using the new names for
+the states:
+
+$$\begin{align}
+\tfrac{dX_1}{dt} &= -\beta X_1X_2 \\
+\tfrac{dX_2}{dt} &= \beta X_1X_2 - \gamma X_2 \\
+\tfrac{dX_3}{dt} &= \gamma X_2
+\end{align}$$
+
+The **Parameters** column encodes the parameters used in the model.
+Every state and parameter need a value; for the state, this corresponds
+to an initial value at time $0$. If one writes "X3=0", then this means
+that it's a fixed value and thus not used for model fitting. The
+asterisk is mandatory for fixed values (but I'm open for changes here).
+In this case, this means that at the beginning of an epidemic, we have
+no recovered individuals.
+
+Writing "beta=[0,3]" encodes the fact that we do not know $\beta$'s true
+value but we believe it to lie somewhere in the interval from 0 to 3 (if
+it's a Bayesian framework, then this represents the uniform prior on
+that interval). The starting point for that parameter will be the midpoint of the interval; if one prefers to start from somewhere else, the syntax is "beta=[0,3]|2". The set-up is flexible enough to accommodate for us not
+knowing how many individuals were infected at the start, thus the
+infected compartment having the shape "X2=init_inf_0\*N0_0", and the
+corresponding shape for the susceptible compartment.
+
+One can also choose different priors on the parameters and initial states. Here are the options with their syntax:
+
+| Prior | Sheet syntax | Support |
+|----|----|----|
+| Uniform | `[lo,hi]` | `[lo,hi]` |
+| Normal | `Normal(mu,sd)` | real line |
+| Log-normal | `LogNormal(mu,sd)` | positive |
+| Beta | `Beta(a,b)` | `(0,1)` |
+| Gamma | `Gamma(a,b)` | positive |
+| Student-t | `StudentT(nu,mu,sigma)` | real line (heavy tails; `nu` = df) |
+
+Some parameters can appear in the form of functions; indeed, $\gamma_t$
+is an extension of the $\gamma$ term we have in the model. It is entered
+as "gamma_t\<-gamma\*(1+ramp\*time)" under **Functions**, which we
+discuss below. The gamma in there is estimated, and thus must appear
+under **Parameters**. The new model looks like:
+
+$$\begin{align}
+\tfrac{dX_1}{dt} &= -\beta X_1X_2 \\
+\tfrac{dX_2}{dt} &= \beta X_1X_2 - \gamma_t X_2 \\
+\tfrac{dX_3}{dt} &= \gamma_t X_2
+\end{align}$$ where $\gamma_t$ is a function in time.
+
+Since the SIR model has three compartments, we have columns **Linear1,
+Quadratic1, Linear2, Quadratic2, Linear3, Quadratic3**. Any pair
+Linear\<i\>, Quadratic\<i\> encodes the equation describing that
+compartment's inflow and outflow. For $X_1$, which is the compartment S,
+we only have the outflow $-\beta SI = -\beta X_1 X_2$, which is a
+quadratic term. Thus, the Linear1 column can be left empty. In the
+Quadratic1 column, we go to the second row, since the $3(i-1) + j$-th
+row in corresponds to the parameter in front of the term $X_iX_j$. So the entry "-beta" encodes the fact that $-\beta X_1 X_2$ is the quadratic term in $\tfrac{dX_1}{dt}$. The number between asterisks before "-beta" tells us to where this flows to, which for this model may not look very relevant, but as discussed before, it comes up in an HIV-type compartmental model. To see how
+Linear\<i\> works, look at Linear3. In the second row, we have the entry
+"(gamma_t)", corresponding to the linear term $\gamma_t X_2$ in the model
+equations.
+
+*Note*: one can only fill in the non-zero terms and leave the rest
+empty, or fill it with 0's for book-keeping. In fact, one can even omit an entire column, which then translates to no terms of that type added to the equations; in our example, one could entirely omit Quadratic2 and Quadratic3. However, no error or
+warning is shown if one writes the terms in the wrong line or erroneously omits a column. 
+
+Not appearing in the model is the **Constant** column, where the first row adds any constant term to $\tfrac{dX_1}{dt}$. Examples for such terms would be birth or migration terms.
+
+Lastly, **Others** is a required column. One has to provide: 
+
+- *startpoint*: corresponding to time 0; it has to be an integer, usually a
+year. *Note the convention chosen here that startpoint - 1 is the time
+for the initial values for the states!* In this file, we start in 2010,
+and the initial states are from 2009. 
+- *endpoint*: until when one has
+data or wants to end the simulation, strictly larger than startpoint and
+the same unit. In the provided file that's 2018. 
+- *partition*: the number
+into which we divide one integer; partition = 365 means we divide a year
+into days, partition = 12 means the division is by months.
+
+#### Optional
+
+- \_Level\<i\>
+- Functions
+- Conditions
+
+```{r show-modelParams-optional, results='asis', echo = FALSE}
+opt_cols <- c("_Level1", "Functions", "Conditions")
+opt <- sc$modelParams[, opt_cols]
+# keep only rows that actually hold something (drops the empty trailing rows)
+opt <- opt[apply(opt, 1, function(r) any(!is.na(r) & trimws(as.character(r)) != "")), ]
+tbl <- knitr::kable(opt, format = "html")
+tbl <- gsub("*", "&ast;", tbl, fixed = TRUE)   # literal * -> entity (Functions cell has gamma*(1+ramp*time))
+cat(tbl, sep = "")
+```
+
+**\_Level1** in our example is optional (but the underscore before the name isn't!), and it encodes which compartment belongs to which sublevel. A typical sublevel divison would be by age, or by biological sex, if there is no uniform mixing. So if we had 2 levels, one would need to specify to which \_Level1 or \_Level2 a
+compartment belongs, either by its corresponding number or by its name.
+
+We already implicated how **Functions** is used: and indeed, the gamma_t
+is used in the model structure equations. The way gamma_t is entered is
+using the R language "\<-". Lastly, one may want to enforce conditions
+on some of the parameters and initial states being fixed, which can be
+done in **Conditions**.
+
+### Data points
+
+The data streams are optional if one only wants to simulate and not
+model fit. The file is organised by **Label**, which is what is
+displayed later in the plots for easy referencing, **Formula** which
+encodes what the label describes, **Likelihood** describes the
+likelihood family we ascribe to the data stream, **Weight** represents
+the trust we have in the data source (1 is normal, 2-3 is strong, 4-7 is
+very strong), **Average** is used when doing MLE to bring all data
+streams to a common magnitude so the solver does not prioritise the
+streams which have the relatively largest numbers. **Average** is optional, and in its absence the data stream is automatically weighted by the inverse of the data stream mean. **Weight** is also optional and defaults to 1 on all nonspecified data streams.
+
+Note that **Weight** and **Average** are only used in the MLE fit, whereas **Likelihood** is only used in a Bayesian fit.
+
+```{r show-data_dataCombined, results='asis', echo = FALSE}
+tbl <- knitr::kable(sc$dataCombined, format = "html")
+tbl <- gsub("*", "&ast;", tbl, fixed = TRUE)   # literal * -> entity, so Markdown doesn't read it as italics
+cat('<style>.cf-modeltable td, .cf-modeltable th { white-space: nowrap; }</style>')
+cat('<div class="cf-modeltable" style="overflow-x:auto">', tbl, '</div>', sep = "")
+```
+
+Then, one needs to specify the data for each year. Entering a number means
+the model fits to that precise number. If one sets [15,95] as for
+"Recovered (X3)" in 2012, it means that the true value is somewhere
+between 15 and 95. And if one writes -- as was done in 2018 -- that
+\>=2147, then this encodes the knowledge that the number is at least
+2147. There are more options:
+
+| Cell | Meaning |
+|----|----|
+| a number | observed value (`0` is a genuine zero) |
+| `x` or blank | missing / unobserved |
+| `<L` / `<=L` | left-censored: true value strictly / at-or-below `L` |
+| `>L` / `>=L` | right-censored: true value strictly / at-or-above `L` |
+| `[A,B]` | interval-censored: true value in `[A,B]`, flat within (`A < B`) |
+| `[A,B]~s` | **soft** interval: plateau `[A,B]`, exponential shoulders of scale `s` (`~sl,su` for asymmetric shoulders) |
+| `A->B` | asymmetric: recorded `A`, soft toward `B` (deviation `\|B-A\|`) |
+| `A+` / `A-` | asymmetric: recorded `A`, soft up/down, deviation from the stream's `Likelihood` column |
+
+### Dummy compartments
+
+Lastly, we have the dummy compartments, which are useful both for
+diagnostics when model fitting, but equally useful when examining
+certain combinations of subpopulations -- this is for "opening the black
+box". The structure is a simpler version of the data streams encoding,
+needing just **Label** and **Formula**.
+
+```{r show-data_dataDummy, echo = FALSE}
+knitr::kable(sc$dataDummy)
+```
+
+
+## Fit by maximum likelihood
+
+In a maximum likelihood estimation (MLE, done via least squares), we let a solver
+deterministically move inside the parameter space to continually improve the parameter choice. That is why we set method = "lbfgsb" (L-BFGS stands
+for Limited memory Broyden-Fletcher-Goldfarb-Shanno), which is a quasi-Newton solver; a different option is "deoptim", where the solver is started multiple times from different
+starting points, and should in principle avoid local optima and find a
+global one. Usually, "lbfgsb" works fine. Of course, the time it takes
+to model fit scales with the number of compartments, and the number of
+parameters and states being model fit.
+
+```{r fit-mle}
+fit_mle <- fitCompartmentalModel(
+    sc$modelParams, sc$dataCombined,
+    method = "lbfgsb",
+    solver = solver_control(backend = "r"),
+  control = optim_control(progress = FALSE)
+  )
+
+get_point(fit_mle)
+```
+
+The `get_point(fit_mle)` prints the estimations. Using `plot_fit()`, we can look at how well the solver fit to the data, and inspect the dummy variables too.
+
+```{r plot-mle}
+plot_fit(fit_mle, data_dummy = sc$dataDummy)$grid
+```
+
+We see that with the fitted parameters, the predicted curves fit nicely through the data points. In principle, one could replace all the parameters like "beta=[0,3]" with "beta=[0,3]|random", which draws uniformly from the interval to start the estimation. Then, one can launch it multiple times, getting a proxy for a confidence interval. The more natural approach, though, is a Bayesian set-up.
+
+## Fit by Bayesian sampling
+
+If one prefers a Bayesian set-up (and is willing to wait a lot longer than for an MLE fit), `compfit` provides an `R`, `Julia` or a `Stan` backend to fit the model instead. This is controlled by the solver, with options: `backend="r"`, `backend="julia"` or `backend="stan"`. The `R` backend uses the gradient-free sampler `BayesianTools`, whereas the Julia path needs a bridge to Julia and uses a No U-Turn sampler (NUTS), which has to first be initiated. Stan also uses a NUTS. In fact, the `R` backend is only sensible for really small models but it is slow and mixes poorly; we illustrate this below and compare it to Julia (and then Stan), so one should understand the output from the `R` backend as a cautionary tale. 
+
+After setting up the files and reading them in via `load_scenario`, we can call `fitCompartmentalModel` by providing the model structure, the data points as well as some other controls. The main one is setting method to "bayes", and choosing the backend = "r". In bayes_control, choose the number of iterations and the number of chains. Whenever there is a progress option, it defaults to TRUE and you can see how the solver progresses.
+
+```{r fit-bayes}
+fit_bayes <- fitCompartmentalModel(
+  sc$modelParams, sc$dataCombined,
+  method  = "bayes",
+  solver  = solver_control(backend = "r"),
+  bayes   = bayes_control(iter = 4000, chains = 3, progress = FALSE)
+) 
+```
+
+Once the fit is through, we can inspect how well it worked by looking at the output of `posterior_report()`:
+
+``` {r posterior-report-r}
+posterior_report(fit_bayes)
+```
+
+Well, clearly something is off if ESS is zero. We can look at how the posteriors of the fitted quantities look like using `plot_prior_posterior()`, and again we see it looks a bit off, though each posterior narrowed and moved away from the uninformative uniform prior. 
+
+```{r plot-prior-posterior, fig.width = 6, fig.height = 3.5, out.width = "70%"}
+plot_prior_posterior(fit_bayes)
+```
+
+At this point, it looks strange, but we persist still and compare the Bayes median and mean of the parameter posteriors to what we obtained from the MLE:
+
+```{r compare}
+compare_to_mle(fit_bayes, fit_mle) 
+```
+
+The MLE and the Bayes fit are not too far off from each other, which is encouraging. Since Bayes gives us directly credibility intervals, we also inspect that using `plot_fit()`, where the darker shade is coming from the parameter uncertainty, and the lighter one from the likelihood families chosen.
+
+```{r plot-bayes}
+plot_fit(fit_bayes, data_dummy = sc$dataDummy, band_type = "both")$grid
+```
+
+Another view of the same fit is a *spaghetti plot*, which draws one line per
+posterior draw instead of a summarised band:
+
+```{r plot-bayes-spaghetti}
+plot_fit(fit_bayes, data_dummy = sc$dataDummy,
+         band_type = "spaghetti", spaghetti_draws = 80)$grid
+```
+
+Now this is really weird, with this huge CrI and only very few curves from the spaghetti plot.
+
+## Why the R-backend posterior looks degenerate
+
+The issue is what we mentioned earlier: the R backend uses a gradient-free sampler and thus barely moves (in fact, it has a really hard time with the >=2147 and [15,95] information on the data streams, which leads it to reject a lot of the proposals and makes it virtually immobile). We can highlight this by inspecting how many different draws there actually are:
+
+```{r unique-draws}
+draws <- posterior_draws(fit_bayes)
+nrow(draws)
+nrow(unique(round(as.data.frame(draws), 6)))
+```
+
+Though there are 6006 draws, there are only 6 unique ones. Clearly, we need to move on to a better sampler.
+
+## The same model with the Julia backend
+
+Julia, which employs the No U-Turn sampler (NUTS) is one option to get around the
+mixing problem we observed. Installing Julia on a build server is
+heavy, so this article does **not** run it live: the fit is produced once and
+saved, then loaded here for display. 
+
+```{r julia-setup-reference, eval = FALSE}
+# The number of threads have to be set before, and once they are set, 
+# you cannot change it anymore in the session
+Sys.setenv(JULIA_NUM_THREADS = 4)
+
+library(compfit)
+setup_julia()   
+# starts Julia; the first call installs the Julia packages
+                # (OrdinaryDiffEq, Turing, Distributions) and takes a few minutes
+```
+
+```{r julia-fit-reference, eval = FALSE}
+# The runnable version of this lives in
+# data-raw/make_julia_artifacts.R.
+fit_julia <- fitCompartmentalModel(
+  sc$modelParams, sc$dataCombined,
+  method = "bayes",
+  solver  = solver_control(backend = "julia"),
+  bayes  = bayes_control(chains = 4, iter = 2000)
+)
+save_fit(fit_julia, "vignettes/articles/julia_fit.rds")
+```
+
+```{r julia-detect, include = FALSE}
+# Resolve saved artifacts whether knitting from the article dir or the package root.
+.find <- function(f) if (file.exists(f)) f else file.path("vignettes/articles", f)
+julia_fit_path   <- .find("julia_fit.rds")
+have_julia_fit   <- file.exists(julia_fit_path)
+julia_bands_path <- .find("julia_bands.svg")       # predictive + mean CrI bands
+have_julia_bands <- file.exists(julia_bands_path)
+julia_spag_path  <- .find("julia_spaghetti.svg")   # per-draw trajectories
+have_julia_spag  <- file.exists(julia_spag_path)
+```
+
+```{r julia-report, eval = have_julia_fit}
+fit_julia <- reload_fit(julia_fit_path, register = FALSE)
+posterior_report(fit_julia)
+```
+
+Now this looks much better, and the prior versus the posteriors of the parameter distributions also looks much more encouraging:
+
+```{r julia-prior-post, eval = have_julia_fit, fig.width = 6, fig.height = 3.5, out.width = "70%"}
+plot_prior_posterior(fit_julia)
+```
+
+```{r julia-bands-img, echo = FALSE, eval = have_julia_bands, out.width = "80%"}
+# Pre-rendered on the Julia machine (plot_fit re-solves the ODE, so it needs a
+# live Julia session and cannot be produced from a register = FALSE reload).
+knitr::include_graphics(julia_bands_path)
+```
+
+The same can be said for the spaghetti plots, now with many more curves accepted.
+
+```{r julia-spaghetti-img, echo = FALSE, eval = have_julia_spag, out.width = "80%"}
+# Pre-rendered on the Julia machine (same reason as the band plot above).
+knitr::include_graphics(julia_spag_path)
+```
+
+Julia is thus a much more robust option. For anyone who prefers Stan instead, we can see the same results as with Julia in the next section.
+
+## The Stan backend
+
+If installing Julia is a barrier, `compfit` can also sample with **Stan** via
+`rstan` — the same gradient-based NUTS, no Julia required (it compiles a Stan
+program on first use). Stan also mixes well, as one can see by again inspecting the different parts of the model, as done below.
+
+```{r stan-reference}
+fit_stan <- fitCompartmentalModel(
+  sc$modelParams, sc$dataCombined,
+  method = "bayes",
+  solver = solver_control(backend = "stan"),
+  bayes  = bayes_control(chains = 4, iter = 2000, progress = FALSE)
+)
+posterior_report(fit_stan)
+```
+
+
+```{r plot-bayes-stan}
+plot_fit(fit_stan, data_dummy = sc$dataDummy, band_type = "both")$grid
+```
+
+
+```{r plot-bayes-spaghetti-stan}
+plot_fit(fit_stan, data_dummy = sc$dataDummy,
+         band_type = "spaghetti", spaghetti_draws = 80)$grid
+```
+
+
+
+## Coming soon: counterfactual scenarios and predictions
+
+Once one has fitted a model and is happy with it, oftentimes it is of
+scientific value to ask "what if ... ?" This can be encoded in
+counterfactual scenarios and will be part of a future iteration of the
+package. Similarly, a fitted model can serve to have some predictions
+for the dynamics of the model as it goes beyond the last time point.
+This is also in the works.
+
+## Where next
+
+- `vignette("compfit")` — the full workflow and the model-sheet grammar.
+- `?fitCompartmentalModel`, `?plot_fit`, `?plot_prior_posterior` — the
+  reference pages.

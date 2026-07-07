@@ -1,0 +1,472 @@
+---
+title: "Getting started with compfit"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting started with compfit}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>",
+  eval     = FALSE      # shown, not run: most chunks want a fitted model or Julia
+)
+```
+
+You describe a compartmental (SIR-type) ODE model in three small spreadsheets,
+and `compfit` fits it, by maximum likelihood or Bayesian sampling. It then helps
+you analyse the result: posterior summaries, predictive plots, global (Sobol) and
+local sensitivity, practical identifiability, and reproducible code export. You
+write down the model; the package handles the ODE build, the loss or likelihood,
+the solver, and the plots.
+
+This guide walks through that workflow and the sheet grammar it uses. For a
+worked example that runs live, with real output and figures, see the companion
+article *"Fitting an SIR model with compfit"*.
+
+## At a glance
+
+The basic workflow is three calls: load, fit, plot.
+
+```{r}
+library(compfit)
+
+# A scenario is a folder of three sheets: model, data, and optional dummy series.
+sc <- load_scenario("path/to/MyScenario",
+                    combined_file = "dataCombined.csv",
+                    dummy_file    = "dataDummy.csv",
+                    params_file   = "modelParams.csv")
+
+# Fit by maximum likelihood. backend = "r" runs entirely in R, with no Julia.
+fit <- fitCompartmentalModel(sc$modelParams, sc$dataCombined,
+                             method = "lbfgsb",
+                             solver = solver_control(backend = "r"))
+summary(fit)
+
+# Inspect the fit (and any dummy series) as a grid of per-stream panels.
+plot_fit(fit, data_dummy = sc$dataDummy)$grid
+```
+
+The rest of this guide covers each step.
+
+## Choosing a backend
+
+Solving the ODE, and for Bayesian fits drawing the posterior, can run on any of
+three backends. Pick one with `solver_control(backend = ...)`:
+
+| backend | engine | needs | good for |
+|----|----|----|----|
+| `"julia"` (default) | Julia `OrdinaryDiffEq` + Turing NUTS | a Julia session | fastest solves; gradient-based Bayesian sampling with full feature support |
+| `"r"` | `deSolve` + gradient-free MCMC (`BayesianTools`) | nothing extra | Julia-free fitting; small models, quick checks, teaching |
+| `"stan"` | Stan NUTS via `rstan` | a C++ toolchain | gradient-based Bayesian sampling, no Julia; best for censored counts |
+
+Maximum-likelihood fits give the same answer on every backend, just faster on
+Julia. For Bayesian fits the differences matter:
+
+- `"julia"` is the main path: fast NUTS, every family and every data-cell type.
+- `"r"` uses a gradient-free sampler (`BayesianTools` DEzs), seeded from a quick
+  MLE fit. It is much slower and mixes far worse, so it is best for a small model
+  or a sanity check. For real inference use Julia or Stan.
+- `"stan"` gives gradient-based NUTS with no Julia. All three backends now score
+  every data-cell type (observed, censored, interval `[A,B]`/`[A,B]~s`,
+  asymmetric) and all four families. For *censored count* data Stan is actually
+  the strongest option (see the CDF note below).
+
+Every data-cell type now works on all three Bayesian backends. The one remaining
+backend nuance is that Julia cannot score a censored/interval/asymmetric cell on
+a **discrete** family (see the CDF note); Stan and R can.
+
+Everything downstream (`posterior_report()`, `plot_prior_posterior()`, and so on)
+works the same whichever backend you pick.
+
+The Julia backend needs a one-time setup per session. The first call also installs
+the required Julia packages (OrdinaryDiffEq, Turing, Distributions), which takes a
+few minutes; later calls are quick:
+
+```{r}
+setup_julia()
+```
+
+The bridge also initialises lazily, so `setup_julia()` mainly just does the slow
+part up front. The R and Stan backends need no Julia at all.
+
+### Choosing the Julia ODE solver
+
+On the Julia backend, `solver_control(solver = ...)` takes any `OrdinaryDiffEq`
+solver, written as the Julia constructor and passed straight through to the
+solve. The default auto-switches between a non-stiff and a stiff method and is a
+good fit for almost every compartmental model, so you rarely need to change it.
+When you do:
+
+| `solver` | Kind | Use when |
+|----|----|----|
+| `"AutoTsit5(Rosenbrock23())"` *(default)* | auto-switching | general purpose; leave it here unless a fit misbehaves |
+| `"Tsit5()"` | non-stiff | plain, fast, smooth dynamics |
+| `"Vern7()"`, `"Vern9()"` | non-stiff, high accuracy | tight tolerances |
+| `"Rosenbrock23()"`, `"Rodas5()"`, `"Rodas4()"` | stiff (Rosenbrock) | stiff systems (fast/slow rates) |
+| `"KenCarp4()"`, `"TRBDF2()"` | stiff (implicit) | larger stiff systems |
+| `"AutoVern7(Rodas5())"` | auto-switching | like the default but higher accuracy |
+
+```{r}
+fit <- fitCompartmentalModel(sc$modelParams, sc$dataCombined, method = "lbfgsb",
+                             solver = solver_control(solver = "Rodas5()"))
+```
+
+The full menu is in the
+[DifferentialEquations.jl solver guide](https://docs.sciml.ai/DiffEqDocs/stable/solvers/ode_solve/).
+This choice is Julia-only: the R backend uses deSolve's auto-switching `lsoda`,
+and the Stan backend uses Stan's `ode_rk45` (or `ode_bdf` via
+`solver_control(solver = "bdf")`).
+
+## The scenario sheets
+
+A *scenario* is one folder holding the input files:
+
+```
+MyScenario/
+  modelParams.xlsx    # the model: compartments, parameters, rates, time grid
+  dataCombined.xlsx   # the data: one row per observed stream (optional; omit to simulate)
+  dataDummy.xlsx      # optional derived series to overlay
+```
+
+`load_scenario()` reads all three. `sc` then holds `sc$modelParams`,
+`sc$dataCombined`, `sc$dataDummy`, and a `sc$plot_path` for output. Formats
+`.csv`, `.xlsx`, `.tsv`, `.rds`, `.parquet` and more are detected automatically.
+
+```{r}
+sc <- load_scenario(
+  "path/to/MyScenario",
+  combined_file = "dataCombined.xlsx",
+  dummy_file    = "dataDummy.xlsx",
+  params_file   = "modelParams.xlsx"
+)
+```
+
+### modelParams: the model
+
+The model sheet uses column groups:
+
+- **`States`**: the compartments, in order, with their initial values. You can
+  name them freely, `S`, `I`, `R` or `X1`, `X2`, `X3`. The `States` column sets
+  both the names and the order. Each entry is `*name=val` (fixed), `name=[lo,hi]`
+  (fitted), or `*name=<expr>` (a parameter-dependent initial value, for example
+  `*X2=init_inf_0*N0_0`).
+- **`Parameters`**: `*name=val` is fixed. A fitted parameter is given by its
+  **prior**, either the box form `name=[lo,hi]` (Uniform) or a named distribution
+  (see the priors table below). A Bayesian fit uses the stated distribution as
+  the prior. An MLE fit only needs a search box, so an unbounded prior (a plain
+  `Normal`, say) is given a finite range from the distribution (`mean ± 4 sd`, or
+  its natural support). Add a trailing `[lo,hi]` to set the MLE bounds exactly.
+- **Start value** (optional): append `|value` to a box to set the optimiser's
+  starting point, for example `beta=[0,3]|2.5`. Without it the search starts at
+  the box midpoint. Use `|random` (or `|rand`) instead to draw the start
+  uniformly from the box, for example `beta=[0,3]|random`; the draw is seeded by
+  `optim_control(seed = )`, so it is reproducible, and `seed = NULL` gives a
+  fresh start each run (handy for multi-start / escaping a poor local optimum).
+  This drives the L-BFGS-B start (and the Bayesian MAP warm-start); `deoptim` and
+  `hypercube` scan the whole box already, so a single start is moot there.
+- **`Linear<j>` / `Quadratic<j>`**: the first- and second-order rate coefficients,
+  one pair of columns per compartment. A blank cell counts as zero, and so does a
+  whole column you leave out (that compartment simply gets no such terms).
+- **`Constant`** (optional): a zeroth-order term added straight to a compartment's
+  rate, one value per compartment (row `i` feeds `dX[i]`). Use it for an inflow
+  that does not depend on any state, such as a constant birth or immigration rate,
+  which cannot be written as a `Linear` (`*X[j]`) or `Quadratic` (`*X[i]*X[j]`)
+  term. A cell may be a number, a parameter name, an expression of parameters, or a
+  `$`-prefixed time-function (`$1000*exp(-0.1*time)`) -- the same grammar as a
+  `Linear` coefficient, minus the `*X[j]`. A blank cell or an absent column is zero.
+- **`Others`**: the time grid, with `startpoint`, `endpoint`, `partition`, and an
+  optional `cutoff`. The axis is annual (integer years), and by convention the
+  initial state sits at `startpoint - 1`.
+- **`Functions`** (optional): time-varying helpers, for example
+  `gamma_t<-gamma*(1+ramp*time)`.
+- **`Conditions`** (optional): constraints turned into a fitting penalty, for
+  example `beta>gamma`.
+- **`_Level<j>`** (optional): which compartments share a mixing population (age,
+  sex, region). The name after `_` is up to you (`_Level1`, `_Age1`, and so on),
+  and cells take a compartment number or name. Leave it out and all compartments
+  form a single population.
+
+> **Reserved names.** A Bayesian fit uses `sigma` (the Gaussian or log-normal
+> noise scale) and `phi`/`phi<i>` (negbin dispersion) as its own parameters, so a
+> model parameter or state cannot be named `sigma` or `phi`. Using one raises a
+> clear error on `method = "bayes"`; MLE is unaffected. Just rename it, for
+> example an SEIR incubation rate as `sigma_ei`.
+>
+> Separately, a handful of names collide with variables the code generator emits
+> and are rejected for **any** fit (parameters, states, and functions alike):
+> Julia keywords and the solver internals `t`, `p`, `X`, `du`, `dX`, `parms`; the
+> level populations `N1`, `N2`, … and their sum `total_pop`; and the per-term
+> helpers `f<ij>`, `g<ij>`, `cst<i>`, `secOrd_<i>_<j>`. Also avoid declaring both a
+> quantity and its `_0` alias (e.g. `beta` and `beta_0`). Note `N0` is fine (a
+> common fixed initial-population parameter) -- only `N1` upward are taken.
+
+The sheet is checked up front by `validate_modelParams()`, which reports entry
+mistakes with a message naming the offending column and cell: a non-numeric fixed
+value, a reversed or non-numeric box `[lo,hi]`, an out-of-range `Quadratic`
+target, a typo in a coefficient, or a missing time-grid field. You can call it
+yourself, or turn off the automatic check with
+`options(compfit.validate = FALSE)`.
+
+#### Priors
+
+A fitted parameter or state can take any of these priors, written in the `States`
+or `Parameters` cell:
+
+| Prior | Sheet syntax | Support |
+|----|----|----|
+| Uniform | `[lo,hi]` | `[lo,hi]` |
+| Normal | `Normal(mu,sd)` | real line |
+| Log-normal | `LogNormal(mu,sd)` | positive |
+| Beta | `Beta(a,b)` | `(0,1)` |
+| Gamma | `Gamma(a,b)` | positive |
+| Student-t | `StudentT(nu,mu,sigma)` | real line (heavy tails; `nu` = df) |
+
+Every named distribution (all but the bare box) can be **truncated** by appending
+a `[lo,hi]`, for example `Normal(0.4,0.1)[0,1]` or `LogNormal(-1,0.5)[0,5]`. The
+`SIR_priors` and `SEIR_priors` example scenarios exercise all of them.
+
+### dataCombined: the observations
+
+One row per observed stream: a `Formula` (what the stream measures, for example
+`X2` or `rho*X2`), an optional `Label` (its display name, which defaults to the
+`Formula` when omitted or blank), an optional `Likelihood` family, and one column
+per year.
+
+`Weight` and `Average` are optional per-stream scaling columns for the MLE
+objective, and they do not affect Bayesian fits. Omit them and `Weight` defaults
+to 1 while `Average` is set to `1 / mean(observed)` per stream, so streams of
+different magnitude count comparably. Include either column to override.
+
+Each data cell is parsed as one of:
+
+| Cell | Meaning |
+|----|----|
+| a number | observed value (`0` is a genuine zero) |
+| `x` or blank | missing / unobserved |
+| `<L` / `<=L` | left-censored: true value strictly / at-or-below `L` |
+| `>L` / `>=L` | right-censored: true value strictly / at-or-above `L` |
+| `[A,B]` | interval-censored: true value in `[A,B]`, flat within (`A < B`) |
+| `[A,B]~s` | **soft** interval: plateau `[A,B]`, exponential shoulders of scale `s` (`~sl,su` for asymmetric shoulders) |
+| `A->B` | asymmetric: recorded `A`, soft toward `B` (deviation `\|B-A\|`) |
+| `A+` / `A-` | asymmetric: recorded `A`, soft up/down, deviation from the stream's `Likelihood` column |
+
+The CDF-based cells (`<`, `<=`, `>`, `>=`, `[A,B]`, `A->B`, `A+`, `A-`) work for
+every family on the R backend. On the **Julia/NUTS** path, though, `logcdf` is not
+autodifferentiable for the discrete families, so a censored `poisson` or `negbin`
+cell fails there. You have three options: run that fit on the **Stan** backend,
+which uses analytic discrete CDFs and handles censored counts directly (this is
+the one case where Stan is the strongest backend); put the cell on a continuous
+(`gaussian` or `lognormal`) stream, as in the shipped `SIR` and `SEIR` examples;
+or use the soft interval `[A,B]~s`, a plain penalty on the model mean
+(`log g(mu)`, no CDF) that works for every family under NUTS. Discrete streams
+can always carry plain observed and missing (`x`) cells on any backend.
+
+The soft interval `[A,B]~s` says "most plausibly in `[A,B]`, tapering off outside
+with scale `s`". At `A - s` (or `B + s`) the penalty is one log-unit. It is the
+tool for "above 100, but most of the mass in 110–130": write `[110,130]~10`. A
+hard `[110,130]` would instead forbid everything outside the band.
+
+> **How censored and interval cells enter each fit.** In the MLE (least-squares)
+> loss they become one-sided or two-sided hinge penalties: exactly zero while the
+> model prediction satisfies the bound or sits inside `[A,B]`, then growing
+> quadratically once it strays outside. In the Bayesian fit they are proper
+> censored likelihood terms (`P(Y >= L)`, `P(A <= Y <= B)` via the CDF), which
+> keep some curvature even inside the region. Note that `>L` versus `>=L` only
+> matters for the discrete Bayesian CDF, not for the MLE hinge.
+
+The `Likelihood` column declares each stream's family (Bayesian fits only; the
+MLE loss is least-squares and ignores it). The families:
+
+| Family | `Likelihood` value | Data | Notes |
+|----|----|----|----|
+| Gaussian | `gaussian` | continuous | proportional-error Normal; the default when the column is absent |
+| Log-normal | `lognormal` | positive | |
+| Poisson | `poisson` | counts | |
+| Negative binomial | `negbin` | over-dispersed counts | mean--dispersion form, with a fitted dispersion per stream |
+
+All four families work on all three backends. Each also has a couple of aliases
+(`normal`, `lnorm`, `pois`, `nbinom`, `nb`), and non-integer data on a count
+family is rounded, with a warning.
+
+The column can also carry a global deviation for `A+`/`A-` cells:
+
+```
+gaussian                  # family only
+gaussian; asym=4          # family plus a deviation of 4 (absolute units) for A+/A- cells
+```
+
+Using `A+`/`A-` in a stream whose `Likelihood` has no `asym=` is an error; there
+is no silent default. Either add `; asym=<number>`, or use the explicit `A->B`
+form, which carries its own deviation.
+
+#### Under-reporting and coverage models
+
+When "observed < true" comes from a mechanism, say you see only a fraction of
+cases (a reporting rate, a cohort coverage), model it directly rather than as a
+bound. The `Formula` column already refers to parameters by name, so give the
+stream a coverage factor:
+
+```
+Formula       Parameters
+rho*X2        rho=Beta(2,2)     # reported = rho * true infected; rho fitted
+```
+
+`rho` can be fixed (`*rho=0.7`) or fitted with any prior. This gets you more than
+a bound does, but `rho` trades off with the epidemic scale, so it needs an anchor:
+a second, fully observed stream, a fixed population `N0`, or an informative prior
+on `rho`. This is a modelling pattern, not a cell type.
+
+### dataDummy: derived series
+
+These are extra series to evaluate on the trajectory and overlay on plots, handy
+for looking at combinations of compartments (prevalence `X2/(X1+X2+X3)`, say, or a
+subpopulation sum). Each row is just a `Label` and a `Formula` (the `Label` again
+defaults to the `Formula`). Dummy series carry no likelihood and are never fitted.
+
+## Simulate without fitting
+
+If every state and parameter in the sheet is fixed (`*name=val`), there is nothing
+to estimate. You can run the model forward with no `dataCombined` at all and
+evaluate the dummy formulas on the trajectory:
+
+```{r}
+sim <- simulate_model(sc$modelParams, data_dummy = sc$dataDummy,
+                      solver = solver_control(backend = "r"))
+sim                          # compartments, time span, fixed parameter values
+head(sim$sir_out)            # the solved trajectory
+plot_simulation(sim)$grid    # one panel per compartment / evaluated series
+```
+
+If any quantity is still fittable, `simulate_model()` says so and points you at
+`fitCompartmentalModel()`. Fixed-value `*_sim` example scenarios (`SIR_sim`,
+`SEIR_sim`, and so on) ship with the package.
+
+## Fit by maximum likelihood
+
+```{r}
+fit <- fitCompartmentalModel(
+  modelParams  = sc$modelParams,
+  dataCombined = sc$dataCombined,
+  method       = "lbfgsb",                      # or "deoptim" (global), "hypercube"
+  control      = optim_control(maxit = 1000),   # progress = FALSE for a silent fit
+  solver       = solver_control()               # backend = "r" for a Julia-free fit
+)
+
+summary(fit)
+get_point(fit)        # named point estimate (initial states plus parameters)
+```
+
+`method = "lbfgsb"` is a fast deterministic local search. `"deoptim"` is a
+stochastic global search (differential evolution), more robust on rugged
+objectives but slower. `"hypercube"` is a deterministic Sobol pre-scan. The
+`*_control()` helpers bundle the settings for each stage; see `?optim_control`,
+`?hypercube_control`, and `?solver_control`.
+
+## Fit by Bayesian sampling
+
+Pass `method = "bayes"` and a `bayes_control()` spec, and choose the sampler with
+the `solver` backend (`"julia"`, `"stan"`, or `"r"`).
+
+```{r}
+fit_b <- fitCompartmentalModel(
+  modelParams  = sc$modelParams,
+  dataCombined = sc$dataCombined,
+  method       = "bayes",
+  solver       = solver_control(),                        # or backend = "stan" / "r"
+  bayes        = bayes_control(chains = 4, iter = 2000, warmup = 1000)
+)
+```
+
+`bayes_control(progress = FALSE)` silences the sampler's progress output on any
+backend. Inspect the posterior and its convergence:
+
+```{r}
+posterior_report(fit_b)        # convergence verdict plus means and intervals
+posterior_means(fit_b)
+posterior_intervals(fit_b, p = 0.95)
+plot_prior_posterior(fit_b)    # prior vs posterior, per parameter
+identifiability_report(fit_b)  # narrowing, coverage, correlation diagnostics
+```
+
+A useful check is to compare the posterior against an MLE fit of the same model:
+
+```{r}
+fit_mle <- fitCompartmentalModel(sc$modelParams, sc$dataCombined, "lbfgsb")
+compare_to_mle(fit_b, fit_mle) # posterior mean and median vs MLE
+```
+
+## Plot
+
+`plot_fit()` returns per-stream `plots`, an arranged `grid` (if patchwork is
+installed), and the editable plotting `code`. Overlay dummy series with
+`data_dummy`.
+
+```{r}
+res <- plot_fit(fit_b, data_dummy = sc$dataDummy, band_type = "both")
+save_grid(res, sc$plot_path)   # writes a new numbered file; never overwrites
+```
+
+`band_type` sets the uncertainty display for Bayesian fits: `"predictive"`,
+`"mean"`, `"both"`, or `"spaghetti"`.
+
+**Colour scheme.** Plots use the colour-blind-safe Okabe-Ito palette by default.
+For print or monochrome output pass `palette = "grey"` (or `"grayscale"`), or a
+custom palette list (see `?cfit_palette`):
+
+```{r}
+res_bw <- plot_fit(fit_b, palette = "grey")
+```
+
+To switch every plot at once, set the global option; a per-call `palette` still
+overrides it:
+
+```{r}
+options(compfit.palette = "grey")   # back to colour: options(compfit.palette = "okabe")
+```
+
+## Save and reload
+
+```{r}
+save_fit(fit_b, "Saved fits/fit.rds")
+fit_b <- reload_fit("Saved fits/fit.rds")   # re-registers the backend and rebuilds the loss
+```
+
+Use `reload_fit(path, register = FALSE)` for a results-only read (posterior draws,
+no backend session).
+
+## Sensitivity
+
+Global (variance-based, Sobol) sensitivity of the model outputs, summarised:
+
+```{r}
+sob <- sobol_streams(fit_b, n = 500)
+sobol_report(sob)              # validity, per-stream ranking, interactions, heatmap
+```
+
+Local (derivative) sensitivity at the fitted point:
+
+```{r}
+ls <- local_sensitivity(fit_b, type = "relative")
+plot_local_sensitivity(ls, kind = "tornado")
+```
+
+## Reproducible export
+
+`extract_code()` writes self-contained R source that reproduces the model, loss,
+and/or fit from a fit object, handy for sharing or archiving an analysis:
+
+```{r}
+extract_code(fit_b, file = "reproduce.R", what = "all")
+```
+
+## Where next
+
+- *"Fitting an SIR model with compfit"* is the narrated, run-live walkthrough.
+- `?fitCompartmentalModel` covers the full fitting interface and its `method`s.
+- `?solver_control`, `?optim_control`, `?bayes_control` document every option.
+- `?simulate_model`, `?plot_fit`, `?plot_prior_posterior` cover simulating and
+  plotting.
+- `?sobol_report`, `?local_sensitivity`, `?identifiability_report` cover analysis.

@@ -1,0 +1,6 @@
+"_Level1","Others","States","Functions","Parameters","Conditions","Linear1","Quadratic1","Linear2","Quadratic2"
+"1","startpoint=2000","*X1=N0_0*(1-init_inf_0)","gamma_t<-gamma*(1+ramp*time)","*beta=0.9","beta>gamma","0","0","0","0"
+"2","endpoint=2010","*X2=init_inf_0*N0_0","","*gamma=0.3","","(gamma_t)","*2*-beta","-(gamma_t)","0"
+"","partition=4","","","*ramp=0.03","","","0","","0"
+"","","","","*N0=1000","","","0","","0"
+"","","","","*init_inf=0.01","","","","",""

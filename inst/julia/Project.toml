@@ -1,0 +1,17 @@
+# Pinned Julia environment for compfit's Bayesian/ODE backend.
+# setup_julia() copies this to a writable per-user cache, activates it, and
+# Pkg.instantiate()s it, so every user gets the same tested Julia stack instead
+# of whatever `Pkg.add` resolves to. Bump these deliberately when you re-test.
+
+[deps]
+SciMLBase = "0bca4576-84f4-4d90-8ffe-ffa030f20462"
+OrdinaryDiffEq = "1dea7af3-3e70-54e6-95c3-0bf5283fa5ed"
+Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
+Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+
+[compat]
+SciMLBase = "=2.3.1"
+OrdinaryDiffEq = "=6.59.3"
+Turing = "=0.34.1"
+Distributions = "=0.25.118"
+julia = "1.6"
