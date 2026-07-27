@@ -23,6 +23,14 @@ knitr::opts_chunk$set(
 library(compfit)
 set.seed(1)
 options(rmarkdown.html_vignette.check_title = FALSE)  # this is a pkgdown article, not a shipped vignette
+
+# Committed SVG assets (the diagrams and the pre-rendered spaghetti plot) are
+# embedded INLINE rather than linked: pkgdown does not copy hand-placed image
+# files into the built site, so a linked <img> would 404. .find() resolves the
+# file whether knitting from the article dir or the package root.
+.find      <- function(f) if (file.exists(f)) f else file.path("vignettes/articles", f)
+inline_svg <- function(f) { x <- readLines(.find(f), warn = FALSE)
+                            cat(x[seq(grep("<svg", x)[1], length(x))], sep = "\n") }
 ```
 
 ## Introduction
@@ -76,12 +84,11 @@ subpopulations are visually shown as boxes, or *compartments*, and the
 flows between them are indicated by arrows, compare with the depiction
 below.
 
-```{r sir-diagram, echo = FALSE, out.width = "40%"}
-# SIR diagram: a pre-rendered static SVG. Calling DiagrammeR::grViz() at render
-# time (even piped to export_svg) registers an htmlwidget and breaks pkgdown's
-# article build, so the SVG is committed instead. To change the graph, edit the
-# DOT and regenerate with DiagrammeRsvg::export_svg(DiagrammeR::grViz(...)).
-knitr::include_graphics("sir-diagram.svg")
+```{r sir-diagram, echo = FALSE, results = "asis"}
+# Committed SVG, embedded inline (pkgdown does not copy linked image files). To
+# change the graph, edit the DOT and regenerate the .svg with
+# DiagrammeRsvg::export_svg(DiagrammeR::grViz(...)).
+inline_svg("sir-diagram.svg")
 ```
 
 To describe how the subpopulations change over time in size, we rewrite
@@ -95,10 +102,9 @@ $$\begin{align}
 this information to some extent by adding the parameters governing the
 flows above the arrow.
 
-```{r sir-diagram-params, echo = FALSE, out.width = "40%"}
-# SIR diagram with the flow parameters on the arrows: pre-rendered static SVG
-# (see the note on the sir-diagram chunk above).
-knitr::include_graphics("sir-diagram-params.svg")
+```{r sir-diagram-params, echo = FALSE, results = "asis"}
+# Flow-parameter SIR diagram; committed SVG embedded inline (see sir-diagram).
+inline_svg("sir-diagram-params.svg")
 ```
 
 Note that some of the parameters can intuitively be understood as
@@ -528,9 +534,9 @@ knitr::include_graphics(julia_bands_path)
 
 The same can be said for the spaghetti plots, now with many more curves accepted.
 
-```{r julia-spaghetti-img, echo = FALSE, eval = have_julia_spag, out.width = "80%"}
-# Pre-rendered on the Julia machine (same reason as the band plot above).
-knitr::include_graphics(julia_spag_path)
+```{r julia-spaghetti-img, echo = FALSE, results = "asis", eval = have_julia_spag}
+# Pre-rendered on the Julia machine; committed SVG embedded inline.
+inline_svg("julia_spaghetti.svg")
 ```
 
 Julia is thus a much more robust option. For anyone who prefers Stan instead, we can see the same results as with Julia in the next section.
