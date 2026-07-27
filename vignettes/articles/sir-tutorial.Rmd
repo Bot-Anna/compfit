@@ -541,23 +541,36 @@ If installing Julia is a barrier, `compfit` can also sample with **Stan** via
 `rstan` — the same gradient-based NUTS, no Julia required (it compiles a Stan
 program on first use). Stan also mixes well, as one can see by again inspecting the different parts of the model, as done below.
 
-```{r stan-reference}
+```{r stan-fit-reference, eval = FALSE}
+# Fitting with Stan compiles a Stan program on first use. As with the Julia
+# fit above, the result is saved once and reloaded here so the site can build
+# without a working rstan toolchain.
 fit_stan <- fitCompartmentalModel(
   sc$modelParams, sc$dataCombined,
   method = "bayes",
   solver = solver_control(backend = "stan"),
   bayes  = bayes_control(chains = 4, iter = 2000, progress = FALSE)
 )
+save_fit(fit_stan, "vignettes/articles/stan_fit.rds")
+```
+
+```{r stan-detect, include = FALSE}
+stan_fit_path <- .find("stan_fit.rds")   # .find() defined in the julia-detect chunk
+have_stan_fit <- file.exists(stan_fit_path)
+```
+
+```{r stan-report, eval = have_stan_fit}
+fit_stan <- reload_fit(stan_fit_path, register = FALSE)
 posterior_report(fit_stan)
 ```
 
 
-```{r plot-bayes-stan}
+```{r plot-bayes-stan, eval = have_stan_fit}
 plot_fit(fit_stan, data_dummy = sc$dataDummy, band_type = "both")$grid
 ```
 
 
-```{r plot-bayes-spaghetti-stan}
+```{r plot-bayes-spaghetti-stan, eval = have_stan_fit}
 plot_fit(fit_stan, data_dummy = sc$dataDummy,
          band_type = "spaghetti", spaghetti_draws = 80)$grid
 ```
