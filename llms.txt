@@ -1,0 +1,269 @@
+# compfit
+
+**Fit, analyse and compare compartmental (SIR-type) ODE models from a
+spreadsheet specification.**
+
+`compfit` builds a compartmental ODE model from a small set of tables
+(initial states, parameters, and per-compartment rate coefficients),
+fits it by **maximum likelihood** or **Bayesian sampling**, and helps
+you analyse the result: posterior summaries, prior-vs-posterior and
+predictive plots, global (Sobol) and local sensitivity, practical
+identifiability, and self-contained code export.
+
+Solves and Bayesian (NUTS) sampling run in **Julia** via the JuliaCall
+bridge for speed — but Julia is **optional**: a pure-R backend
+(`deSolve`, with a gradient-free sampler for the Bayesian case) fits
+without it, and a **Stan backend** (`solver_control(backend = "stan")`,
+via `rstan`) offers gradient-based NUTS with no Julia at all.
+
+## Installation
+
+Install the development version from GitHub:
+
+``` r
+
+# install.packages("remotes")
+remotes::install_github("Bot-Anna/compfit")
+```
+
+The required R dependencies are installed automatically. To also pull
+the optional packages used by particular backends and analyses, add
+`dependencies = TRUE`. If the repository is private, set a token first
+with `Sys.setenv(GITHUB_PAT = "<your-token>")` (a token with read access
+to the repo).
+
+### Backends
+
+- **Pure R** — no Julia, works out of the box:
+  `solver_control(backend = "r")`.
+
+- **Stan** — gradient-based NUTS, no Julia: `install.packages("rstan")`,
+  then `solver_control(backend = "stan")`.
+
+- **Julia** — fastest solves plus Julia/Turing NUTS. Install
+  [Julia](https://julialang.org/) (\>= 1.6), then once per session:
+
+  ``` r
+
+  library(compfit)
+  setup_julia()   # first call also installs the needed Julia packages
+  ```
+
+## Quick start
+
+``` r
+
+library(compfit)
+
+# A scenario is a folder with dataCombined / dataDummy / modelParams sheets:
+sc <- load_scenario("path/to/MyScenario",
+                    combined_file = "dataCombined.csv",
+                    dummy_file    = "dataDummy.csv",
+                    params_file   = "modelParams.csv")
+
+# Maximum likelihood (works with or without Julia):
+fit <- fitCompartmentalModel(sc$modelParams, sc$dataCombined, method = "lbfgsb")
+summary(fit)
+plot_fit(fit)$grid
+
+# Bayesian (Julia/Turing NUTS):
+fit_b <- fitCompartmentalModel(sc$modelParams, sc$dataCombined, method = "bayes",
+                               bayes = bayes_control(chains = 4, iter = 2000))
+posterior_report(fit_b)
+plot_prior_posterior(fit_b)
+
+# Bayesian without Julia: gradient-based NUTS via Stan (rstan):
+fit_s <- fitCompartmentalModel(sc$modelParams, sc$dataCombined, method = "bayes",
+                               solver = solver_control(backend = "stan"),
+                               bayes  = bayes_control(chains = 4, iter = 2000))
+```
+
+### Bayesian backends
+
+| backend | engine | needs | notes |
+|----|----|----|----|
+| `"julia"` (default) | Turing NUTS | Julia | fastest; full family/censoring/interval/asymmetric support |
+| `"stan"` | Stan NUTS (`rstan`) | C++ toolchain | gradient-based, no Julia. All four families (`gaussian`/`lognormal`/`poisson`/`negbin`) and every data-cell type (observed, censored, interval `[A,B]`/`[A,B]~s`, asymmetric) — and it is the **strongest** backend for *censored counts* (Julia’s autodiff can’t handle those). |
+| `"r"` | gradient-free MCMC (`BayesianTools`) | — | no Julia, no compiler; slower, mixes less well |
+
+The same spreadsheet, priors, and post-fit tooling (`posterior_report`,
+`plot_prior_posterior`, predictive plots) work across all three; only
+the sampler differs. With `backend = "stan"` every R-side solve (plots,
+predictive) uses deSolve, so no Julia session is ever needed.
+
+Worked example scenarios (SI / SIS / SIR / SEIR and prior/family
+showcases) ship with the package under
+`system.file("extdata", package = "compfit")`, each with a README
+describing what it demonstrates.
+
+## Simulate a fully-specified model (no data, no fitting)
+
+If every state and parameter is fixed (`*name=value`), there is nothing
+to estimate — you can run the model forward with **no `dataCombined` at
+all** and evaluate any `dataDummy` formulas on the trajectory:
+
+``` r
+
+sim_dir <- system.file("extdata", "SIR_sim", package = "compfit")
+mp  <- read_data_file(file.path(sim_dir, "modelParams.csv"))
+dd  <- read_data_file(file.path(sim_dir, "dataDummy.csv"))
+
+sim <- simulate_model(mp, data_dummy = dd, solver = solver_control(backend = "r"))
+sim                       # compartments, time span, fixed parameters
+head(sim$sir_out)         # the solved trajectory
+plot_simulation(sim)$grid # one panel per compartment / evaluated series
+```
+
+Fixed-twin `*_sim` scenarios (`minimal_sim`, `medium_sim`, `SI_sim`,
+`SIS_sim`, `SIR_sim`, `SEIR_sim`) ship as ready-made examples. If any
+quantity is still fittable,
+[`simulate_model()`](reference/simulate_model.md) says so and points you
+at [`fitCompartmentalModel()`](reference/fitCompartmentalModel.md).
+
+## The model sheet, in one minute
+
+`modelParams` uses column groups:
+
+- `_Level*` — compartment column(s); reference each compartment by its
+  1-based index **or** by name (the two are interchangeable everywhere).
+- `States` — initial values: `*S=val` (fixed), `S=[lo,hi]` (fitted), or
+  `*S=<expr>` (parameter-dependent). **Compartments may be named
+  freely** (`S`, `I`, `R`, …) rather than `X1..Xn`; the **order of this
+  column is canonical** (compartment 1 is the first entry). `X1..Xn`
+  remains the identity case.
+- `Parameters` — `*name=val` (fixed) or a **prior**: `name=[lo,hi]`
+  (Uniform), `Normal(mu,sd)`, `LogNormal`, `Beta`, `Gamma`,
+  `StudentT(nu,mu,sd)`, each optionally truncated with a trailing
+  `[lo,hi]`.
+- `Others` — `startpoint`, `endpoint`, `partition`, optional `cutoff`.
+- `Functions` — time-varying helpers,
+  e.g. `gamma_t<-gamma*(1+ramp*time)`.
+- `Conditions` — constraints as a penalty, e.g. `beta>gamma`.
+- `Linear<j>` / `Quadratic<j>` — first- and second-order rate
+  coefficients, one pair of columns per compartment. `<j>` is the
+  compartment index or its name (`LinearS` == `Linear1` when `S` is
+  compartment 1). Blank cells are zero.
+
+`dataCombined` has one row per observed stream (`Label`, `Formula`, and
+one column per year), with an optional `Likelihood` family (`gaussian` /
+`poisson` / `negbin` / `lognormal`) and censoring/interval/asymmetric
+data cells. The sheet is checked at build time by
+[`validate_modelParams()`](reference/validate_modelParams.md), which
+reports entry mistakes (non-numeric value, undeclared symbol in a
+coefficient, reversed box, …) with a clear message naming the offending
+cell.
+
+## Documentation
+
+- [`vignette("compfit")`](articles/compfit.md) — the full walkthrough.
+- The PDF reference manual (`compfit_0.1.0.pdf`).
+- [`?fitCompartmentalModel`](reference/fitCompartmentalModel.md),
+  [`?plot_fit`](reference/plot_fit.md),
+  [`?sobol_report`](reference/sobol_report.md),
+  [`?identifiability_report`](reference/identifiability_report.md).
+
+## License
+
+GPL-3.
+
+## Acknowledgments
+
+`compfit` was developed with the assistance of
+[Claude](https://www.anthropic.com/claude), Anthropic’s AI assistant.
+
+# Package index
+
+## All functions
+
+- [`bayes_control()`](bayes_control.md) : Bayesian sampling settings
+- [`build_compartmental_model()`](build_compartmental_model.md) : Build
+  a compartmental model (no fitting)
+- [`cfit_palette`](cfit_palette.md) : compfit colour palette
+- [`cfit_palette_grey`](cfit_palette_grey.md) : compfit grayscale
+  palette
+- [`cfit_theme()`](cfit_theme.md) : compfit ggplot2 theme
+- [`compare_to_mle()`](compare_to_mle.md) : Compare a Bayesian fit to an
+  MLE fit
+- [`compartmentalFit`](compartmentalFit.md) : The \`compartmentalFit\`
+  object
+- [`get_loss()`](compfit-accessors.md)
+  [`get_model()`](compfit-accessors.md)
+  [`get_data()`](compfit-accessors.md)
+  [`get_time_grid()`](compfit-accessors.md)
+  [`get_bounds()`](compfit-accessors.md)
+  [`get_solver()`](compfit-accessors.md)
+  [`get_compartmental_function()`](compfit-accessors.md)
+  [`get_julia_code()`](compfit-accessors.md)
+  [`get_expressions()`](compfit-accessors.md)
+  [`get_states_and_params()`](compfit-accessors.md)
+  [`get_point()`](compfit-accessors.md)
+  [`get_samples()`](compfit-accessors.md) : Accessors for a
+  compartmental fit
+- [`extract_code()`](extract_code.md) : Export a fit as self-contained
+  source code
+- [`fill_params()`](fill_params.md) : Write fitted estimates back into a
+  model sheet
+- [`fitCompartmentalModel()`](fitCompartmentalModel.md) : Fit a
+  compartmental model
+- [`hypercube_control()`](hypercube_control.md) : Hypercube pre-search
+  settings
+- [`identifiability_report()`](identifiability_report.md) : Practical
+  identifiability report
+- [`load_fit()`](load_fit.md) : Load a fit from disk
+- [`load_scenario()`](load_scenario.md) : Load a scenario folder
+- [`local_sensitivity()`](local_sensitivity.md) : Local (derivative)
+  sensitivity at a fit
+- [`next_plot_path()`](next_plot_path.md) : Next numbered plot path
+- [`optim_control()`](optim_control.md) : Optimiser settings
+- [`plot_fit()`](plot_fit.md) : Plot a compartmental fit
+- [`plot_local_sensitivity()`](plot_local_sensitivity.md) : Plot local
+  sensitivity
+- [`plot_prior_posterior()`](plot_prior_posterior.md) : Plot priors
+  against posteriors
+- [`plot_simulation()`](plot_simulation.md) : Plot a simulated model
+- [`posterior_draws()`](posterior_draws.md) : Posterior draws (natural
+  scale)
+- [`posterior_intervals()`](posterior_intervals.md) : Posterior credible
+  intervals (natural scale)
+- [`posterior_means()`](posterior_means.md) : Posterior means (natural
+  scale)
+- [`posterior_report()`](posterior_report.md) : Report on a Bayesian
+  posterior
+- [`posterior_summary()`](posterior_summary.md) : Posterior summary
+  (natural scale)
+- [`print(`*`<compartmentalFit>`*`)`](print.compartmentalFit.md) : Print
+  a compartmental fit
+- [`read_data_file()`](read_data_file.md) : Read a data file (csv or
+  xlsx)
+- [`registerJuliaODEFunction()`](registerJuliaODEFunction.md) : Register
+  the ODE function in Julia
+- [`reload_fit()`](reload_fit.md) : Reload a fit (optionally
+  re-registering Julia)
+- [`save_fit()`](save_fit.md) : Save a fit to disk
+- [`save_grid()`](save_grid.md) : Save a plot grid
+- [`setup_julia()`](setup_julia.md) : Initialise the Julia bridge
+- [`simulate_model()`](simulate_model.md) : Simulate a fully-specified
+  compartmental model (no fitting)
+- [`sobol_loss()`](sobol_loss.md) : Sobol sensitivity of the loss
+- [`sobol_report()`](sobol_report.md) : Summarise a Sobol sensitivity
+  analysis
+- [`sobol_streams()`](sobol_streams.md) : Sobol sensitivity of model
+  outputs
+- [`solveWithJulia()`](solveWithJulia.md) : Solve the ODE in Julia
+- [`solve_and_evaluate()`](solve_and_evaluate.md) : Solve the ODE and
+  evaluate formulas
+- [`solver_control()`](solver_control.md) : ODE solver settings
+- [`summary(`*`<compartmentalFit>`*`)`](summary.compartmentalFit.md) :
+  Summary of a compartmental fit
+- [`validate_modelParams()`](validate_modelParams.md) : Validate a
+  modelParams sheet
+- [`verify_filled()`](verify_filled.md) : Verify a filled model sheet
+- [`write_filled_params()`](write_filled_params.md) : Write a filled
+  model sheet to a workbook
+
+# Articles
+
+### All vignettes
+
+- [Getting started with compfit](compfit.md):
+- [Fitting an SIR model with compfit](sir-tutorial.md):
