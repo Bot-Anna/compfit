@@ -16,7 +16,8 @@ knitr::opts_chunk$set(
   warning  = FALSE,
   fig.width  = 7,
   fig.height = 4.5,
-  dev = "svglite",      # vector SVG via svglite (no cairo/X11 needed); crisp on every device when hosted
+  dev = "ragg_png",     # ragg PNG (pkgdown's default). NB: dev = "svglite" throws
+                        # "Expected string vector of length 1" during pkgdown's article build.
   cache = TRUE          # heavy chunks (the fits) are cached; delete sir-tutorial_cache/ to force a rerun
 )
 library(compfit)
