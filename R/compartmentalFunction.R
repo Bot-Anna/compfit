@@ -246,11 +246,14 @@ compartmentalFunction <- function(modelParams,
         for(k in 1:length(joined_vec[1,])){
           help_string <- joined_vec[1,k]
           # We need to know to which other compartment to add the expression;
-          # this is indicated by *number* at the beginning, which will tell us
-          # to which Xi to add it to
+          # this is indicated by *target* at the beginning. The target is a
+          # compartment INDEX (*5*) or NAME (*I*, when States name them S/I/R);
+          # .comp_index() resolves either to the canonical integer index that
+          # keys add_to_string below.
           if(has_leading_asterisk(help_string)){
-            goes_to <- sub("^\\*(\\d+)\\*.*$", "\\1", help_string)
-            help_string <- sub("^\\*\\d+\\*(.*)$", "\\1", help_string)
+            goto_token <- sub("^\\*([^*]+)\\*.*$", "\\1", help_string)
+            goes_to <- as.character(.comp_index(goto_token, comp_names))
+            help_string <- sub("^\\*[^*]+\\*(.*)$", "\\1", help_string)
             
             # The dollar sign indicates if we need to build a function first
             # The functions, for now, are only allowed to have the argument "time"

@@ -35,8 +35,8 @@
 #'     codegen variable/function (\code{t}/\code{p}/\code{X}/\code{du}/\code{dX}/
 #'     \code{parms}, \code{N1..}, \code{total_pop}, \code{f<ij>}, \code{g<ij>},
 #'     \code{cst<i>}, \code{secOrd_i_j}, or another quantity's \code{_0} alias);
-#'   \item \code{Quadratic} cells are \code{*goto*coeff} with a target in
-#'     \code{1..n};
+#'   \item \code{Quadratic} cells are \code{*goto*coeff} with a target given as a
+#'     compartment index (\code{1..n}) or a State name (e.g. \code{*I*});
 #'   \item \code{Others} has numeric \code{startpoint}/\code{endpoint}/\code{partition}.
 #' }
 #'
@@ -207,11 +207,12 @@ validate_modelParams <- function(modelParams) {
       for (v in as.character(modelParams[[qc]])[seq_len(n * n)]) {
         v <- trimws(v)
         if (is.na(v) || !nzchar(v) || v == "0") next
-        mm <- regmatches(v, regexec("^\\*(\\d+)\\*(.+)$", v))[[1]]
+        mm <- regmatches(v, regexec("^\\*([^*]+)\\*(.+)$", v))[[1]]
         if (length(mm) != 3L) { add("%s cell '%s' must be '*goto*coeff' or 0.", qc, v); next }
-        goto <- suppressWarnings(as.integer(mm[2]))
+        goto <- .comp_index(mm[2], state_names)   # target by index (*5*) or name (*I*)
         if (is.na(goto) || goto < 1L || goto > n)
-          add("%s cell '%s': target compartment %s is out of range 1..%d.", qc, v, mm[2], n)
+          add("%s cell '%s': target compartment '%s' is not a valid compartment (1..%d or a State name).",
+              qc, v, mm[2], n)
         check_expr(mm[3], sprintf("%s cell '%s' coefficient", qc, v))
       }
   }

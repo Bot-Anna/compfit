@@ -48,7 +48,7 @@ th_section("structural / symbol mistakes are caught")
 chk("reversed box lo>=hi",      grepl("lower < upper", errmsg(mk(c("beta=[5,3]", "gamma=[0,1]")))))
 chk("undefined symbol in coeff", grepl("bta", errmsg(mk(c("beta=[0,1]", "gamma=[0,1]"), q1 = c("0", "*2*-bta")))))
 chk("Quadratic target out of range",
-    grepl("out of range", errmsg(mk(c("beta=[0,1]", "gamma=[0,1]"), q1 = c("0", "*9*-beta")))))
+    grepl("not a valid compartment", errmsg(mk(c("beta=[0,1]", "gamma=[0,1]"), q1 = c("0", "*9*-beta")))))
 chk("missing endpoint",         grepl("missing required .endpoint", errmsg(mk(c("beta=[0,1]", "gamma=[0,1]"),
                                                                                others = c("startpoint=2000", "partition=4")))))
 # a coefficient references 'beta' but it is not declared -- and 'beta' is a base
