@@ -65,6 +65,9 @@
   s <- gsub("\\bTRUE\\b", "1", s)
   s <- gsub("\\bFALSE\\b", "0", s)
   s <- gsub("<-", "=", s, fixed = TRUE)
+  # Stan's binary real min/max are fmin/fmax (plain max/min reduce a container).
+  s <- gsub("\\bmax\\(", "fmax(", s)
+  s <- gsub("\\bmin\\(", "fmin(", s)
   trimws(s)
 }
 
@@ -105,6 +108,7 @@ buildStanODEFunction <- function(sir_expression,
                                  vec_main,
                                  number_of_comps,
                                  level_compartments,
+                                 nw_defs = character(0),
                                  cutoff,
                                  startpoint) {
   stmts <- character(0)
@@ -127,6 +131,16 @@ buildStanODEFunction <- function(sir_expression,
   fe <- gsub("\\bcutoff\\b",     as.character(cutoff),     fe)
   fe <- gsub("\\bstartpoint\\b", as.character(startpoint), fe)
   stmts <- c(stmts, .stan_decl_block(fe))
+
+  # 3b. Weighted-mixing pools Nw<L> (full-pool transmission denominators). After
+  #     parameter unpacking + functions (a weight may be a fitted parameter),
+  #     before the second-order temporaries that divide by them.
+  for (nd in nw_defs) {
+    if (!is.na(nd) && nzchar(trimws(nd))) {
+      d <- .stan_decl_line(nd)
+      if (!is.null(d)) stmts <- c(stmts, d)
+    }
+  }
 
   # 4. Second-order initialisation temporaries.
   for (expr in vec_help_expressions_second_order) {

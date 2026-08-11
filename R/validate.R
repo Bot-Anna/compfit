@@ -24,19 +24,23 @@
 #' the column/cell and what is wrong. Checks:
 #' \itemize{
 #'   \item fixed \code{States}/\code{Parameters} values and \code{Linear}/
-#'     \code{Quadratic}/\code{Constant}/\code{Functions}/\code{Conditions}
-#'     expressions reference only declared symbols (parameters, \code{_0}
-#'     aliases, the declared states -- \code{X1..Xn} or named, e.g.
-#'     \code{S}/\code{I}/\code{R} --, functions, \code{time}), so a typo like
-#'     \code{*2*-bta} is caught;
+#'     \code{Quadratic}/\code{Constant}/\code{Functions}/\code{Conditions}/
+#'     \code{Mixing_<level>} expressions reference only declared symbols
+#'     (parameters, \code{_0} aliases, the declared states -- \code{X1..Xn} or
+#'     named, e.g. \code{S}/\code{I}/\code{R} --, functions, \code{time}), so a
+#'     typo like \code{*2*-bta} is caught;
 #'   \item box priors \code{[lo,hi]} are two numbers with \code{lo < hi};
 #'   \item distribution priors have numeric arguments;
 #'   \item no parameter/state/function name collides with a Julia keyword or a
 #'     codegen variable (\code{t}/\code{p}/\code{X}/\code{du}/\code{dX}/
-#'     \code{parms}, \code{N1..}, \code{total_pop}, \code{secOrd_i_j}, or another
-#'     quantity's \code{_0} alias);
+#'     \code{parms}, \code{N1..}, \code{Nw1..}, \code{total_pop},
+#'     \code{secOrd_i_j}, or another quantity's \code{_0} alias);
 #'   \item \code{Quadratic} cells are \code{*goto*coeff} with a target given as a
 #'     compartment index (\code{1..n}) or a State name (e.g. \code{*I*});
+#'   \item each \code{Mixing_<level>} / \code{Pool_<level>} column has a matching
+#'     \code{_<level>} index column (\code{Mixing} holds non-negative per-compartment
+#'     weights; \code{Pool} holds a single pool expression, and the two are mutually
+#'     exclusive for a level);
 #'   \item \code{Others} has numeric \code{startpoint}/\code{endpoint}/\code{partition}.
 #' }
 #'
@@ -67,8 +71,12 @@ validate_modelParams <- function(modelParams) {
   param_names <- unique(sub("^\\*?\\s*([A-Za-z.][A-Za-z0-9_.]*)\\s*=.*", "\\1", P))
   Fn <- nz(modelParams$Functions)
   func_names <- unique(sub("^\\s*([A-Za-z.][A-Za-z0-9_.]*)\\s*<-.*", "\\1", Fn))
+  # Level head counts N1..Nk and total_pop are codegen quantities in scope for any
+  # coefficient / Pool_<level> expression, so allow them as referenceable symbols.
+  n_levels <- max(1L, length(cs$compartment_cols))
   allowed <- unique(c(param_names, paste0(param_names, "_0"), state_names,
-                      func_names, "time", "t", "N", "pi"))
+                      func_names, "time", "t", "N", "pi",
+                      paste0("N", seq_len(n_levels)), "total_pop"))
 
   # Column groups: a missing/misspelled group (e.g. 'Prameters') otherwise reads
   # as empty and fails cryptically later. Warn on any unrecognised column; a
@@ -78,12 +86,14 @@ validate_modelParams <- function(modelParams) {
     names(modelParams) %in% c(paste0("Linear", state_names),
                               paste0("Quadratic", state_names))
   recognised <- grepl("^_", names(modelParams)) | lin_quad_ok |
+    grepl("^(Mixing|Pool)_", names(modelParams)) |
     names(modelParams) %in% c("Others", "States", "Functions", "Parameters", "Conditions", "Constant")
   if (any(!recognised))
     warning(sprintf(
       paste0("modelParams has unrecognised column(s): %s -- a typo? Expected ",
              "States / Parameters / Others / Functions / Conditions / Constant / ",
-             "Linear<j> / Quadratic<j> and a '_'-prefixed index column."),
+             "Linear<j> / Quadratic<j> / Mixing_<level> / Pool_<level> and a ",
+             "'_'-prefixed index column."),
       paste(names(modelParams)[!recognised], collapse = ", ")), call. = FALSE)
   if (!"States" %in% names(modelParams))     add("missing 'States' column.")
   if (!"Parameters" %in% names(modelParams))
@@ -97,12 +107,14 @@ validate_modelParams <- function(modelParams) {
   # or `t` slipped past. The generated names guarded against:
   #   N1, N2, ...            level populations (N0 stays free -- it is a common
   #                          fixed initial-population parameter)
+  #   Nw1, Nw2, ...          weighted mixing pools (Mixing_<level> denominators)
   #   total_pop              sum of level populations
   #   secOrd_<i>_<j>         second-order term temporaries
   #   time                   rewritten to the codegen time variable `t`
   .codegen_reserved <- function(nm) {
     nm %in% c(.JULIA_RESERVED, "time", "total_pop") |
       grepl("^N[1-9][0-9]*$", nm) |
+      grepl("^Nw[1-9][0-9]*$", nm) |
       grepl("^secOrd_[0-9]+_[0-9]+$", nm)
   }
   nm_all <- unique(c(param_names, state_names, func_names))
@@ -110,8 +122,8 @@ validate_modelParams <- function(modelParams) {
   if (length(reserved_hit))
     add(paste0("reserved name(s) %s -- these collide with a Julia keyword or an ",
                "internal codegen variable (t, p, X, du, dX, parms, N<level>, ",
-               "total_pop, secOrd_i_j) and would break the generated model; ",
-               "rename them."),
+               "Nw<level>, total_pop, secOrd_i_j) and would break the generated ",
+               "model; rename them."),
         paste(sQuote(reserved_hit), collapse = ", "))
 
   # A parameter/state whose name is ALSO another declared quantity's `_0`
@@ -218,6 +230,53 @@ validate_modelParams <- function(modelParams) {
         check_expr(mm[3], sprintf("%s cell '%s' coefficient", qc, v))
       }
   }
+  ## ---- Mixing_<level> ---- (full-pool denominator weights; one per compartment)
+  # Each needs a matching '_<level>' index column; cells are non-negative
+  # numbers or coefficient expressions (blank -> membership default).
+  mix_cols  <- grep("^Mixing_", names(modelParams), value = TRUE)
+  lvl_names <- sub("^_", "", cs$compartment_cols)
+  for (mc in mix_cols) {
+    lname <- sub("^Mixing_", "", mc)
+    if (!(lname %in% lvl_names))
+      add("column '%s' has no matching level column '_%s'.", mc, lname)
+    for (v in as.character(modelParams[[mc]])[seq_len(n)]) {
+      v <- trimws(v)
+      if (is.na(v) || !nzchar(v)) next
+      if (is_num(v)) {
+        if (as.numeric(v) < 0)
+          add("%s cell '%s': mixing weight must be >= 0.", mc, v)
+      } else {
+        check_expr(v, sprintf("%s cell '%s'", mc, v))
+      }
+    }
+  }
+
+  ## ---- Pool_<level> ---- (a whole mixing pool as one expression of the levels)
+  # Function of the level head counts N1..Nk / total_pop (+ params / functions /
+  # time); mutually exclusive with Mixing_<level>.
+  pool_cols <- grep("^Pool_", names(modelParams), value = TRUE)
+  for (pc in pool_cols) {
+    lname <- sub("^Pool_", "", pc)
+    if (!(lname %in% lvl_names))
+      add("column '%s' has no matching level column '_%s'.", pc, lname)
+    if (paste0("Mixing_", lname) %in% names(modelParams))
+      add(paste0("level '%s' has both a 'Mixing_%s' and a 'Pool_%s' column -- use ",
+                 "one (per-compartment weights OR a single pool expression)."),
+          lname, lname, lname)
+    pv <- trimws(as.character(modelParams[[pc]]))
+    pv <- pv[!is.na(pv) & nzchar(pv)]
+    if (length(pv)) check_expr(pv[1], sprintf("%s cell '%s'", pc, pv[1]))
+  }
+  # Note: a Pool expression is the transmission denominator, so it must stay
+  # positive over the whole solve; it is floored at a small positive value to
+  # avoid divide-by-zero, but a pool that reaches 0 or goes negative is a
+  # modelling error (spurious transmission spikes). Informational, not an error.
+  if (length(pool_cols))
+    message("validate_modelParams: Pool_<level> denominators are floored at a ",
+            "small positive value to guard against divide-by-zero; keep each pool ",
+            "expression strictly positive across the time span to avoid spurious ",
+            "transmission when it approaches the floor.")
+
   ## ---- Others (time grid) ----
   o <- nz(modelParams$Others)
   for (key in c("startpoint", "endpoint", "partition")) {

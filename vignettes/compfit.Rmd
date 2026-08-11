@@ -189,6 +189,24 @@ The model sheet uses column groups:
   sex, region). The name after `_` is up to you (`_Level1`, `_Age1`, and so on),
   and cells take a compartment number or name. Leave it out and all compartments
   form a single population.
+- **`Mixing_<level>`** (optional): a companion to a `_<level>` column, named
+  `Mixing_` plus the level's name (`Mixing_Level1`, `Mixing_Age1`). It holds one
+  weight per compartment defining that level's *effective* mixing pool -- the
+  denominator `Nw = sum_k w_k X[k]` that normalises the transmission terms for that
+  level, in place of the raw head count. A blank cell is the membership default (1
+  if the compartment is in the level, else 0), so an absent or all-blank column
+  reproduces the plain head count. A non-zero weight on a compartment from *another*
+  level pulls it into this level's pool (commuting / contact-matrix mixing). Weights
+  follow the coefficient grammar (number, parameter, or expression); the raw `N` and
+  `total_pop` are left unchanged.
+- **`Pool_<level>`** (optional): the alternative to `Mixing_<level>` when the pool is
+  not a simple weighted sum but a *function of the level populations*. A single
+  expression in the level head counts `N1 … Nk` / `total_pop` (plus parameters,
+  `Functions`, and `time`) that becomes the whole denominator for that level, for
+  example `N1 + c*N2/(1 + N2/K)` (a saturating cross-level pool). It is floored at a
+  small positive value to guard against divide-by-zero, so keep the expression
+  strictly positive over the time span. A level uses **either** `Mixing_<level>` or
+  `Pool_<level>`, not both.
 
 > **Reserved names.** A Bayesian fit uses `sigma` (the Gaussian or log-normal
 > noise scale) and `phi`/`phi<i>` (negbin dispersion) as its own parameters, so a

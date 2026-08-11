@@ -40,6 +40,57 @@ sim <- chk_ok("no-level SIR simulates",
 tot <- rowSums(sim$sir_out[c("X1", "X2", "X3")])
 chk_equal("closed population conserved (N0 = 5000)", max(abs(tot - 5000)), 0, tol = 1e-2)
 
+th_section("Mixing_<level> weights the transmission denominator (full pool)")
+add_col <- function(mp, name, vals)
+  { mp[[name]] <- c(as.character(vals), rep("", nrow(mp) - length(vals))); mp }
+# Down-weight X2 in level 1's mixing pool: Nw1 = X1 + 0.5*X2 + X3.
+mpM <- add_col(sc$modelParams, "Mixing_Level1", c("1", "0.5", "1"))
+mM  <- chk_ok("model with Mixing_Level1 builds",
+              build_compartmental_model(mpM, sc$dataCombined, solver = solver_control(backend = "r")))
+chk("raw N1 (true head count) is left intact",
+    grepl("real N1 = X[1]+X[2]+X[3];", mM$model$stan_code, fixed = TRUE))
+chk("Stan defines the weighted pool Nw1",
+    grepl("real Nw1 = X[1]+(0.5)*X[2]+X[3];", mM$model$stan_code, fixed = TRUE))
+chk("Stan transmission divides by Nw1",
+    grepl("/Nw1", mM$model$stan_code, fixed = TRUE))
+chk("Julia defines Nw1 and divides by it",
+    grepl("Nw1 = X[1]+(0.5)*X[2]+X[3]", mM$model$julia_code, fixed = TRUE) &&
+    grepl("/Nw1", mM$model$julia_code, fixed = TRUE))
+chk("R model body defines Nw1 and divides by it", {
+  b <- paste(deparse(body(mM$model$compartmental_function)), collapse = "\n")
+  grepl("Nw1 = X[1] + (0.5) * X[2] + X[3]", b, fixed = TRUE) && grepl("/Nw1", b, fixed = TRUE) })
+
+th_section("no Mixing column -> byte-identical N-denominators (no Nw)")
+m0m <- build_compartmental_model(sc$modelParams, sc$dataCombined, solver = solver_control(backend = "r"))
+chk("no Nw pool is generated", !grepl("Nw", m0m$model$stan_code, fixed = TRUE))
+chk("transmission still divides by the raw N1", grepl("/N1", m0m$model$stan_code, fixed = TRUE))
+
+th_section("Mixing can pull a compartment from another level (cross-level pool)")
+mp2 <- sc$modelParams
+mp2[["_Level1"]] <- c("1", "2", rep("", nrow(mp2) - 2))   # level 1 = {X1, X2}
+mp2 <- add_col(mp2, "_Level2", c("3"))                     # level 2 = {X3}
+mp2 <- add_col(mp2, "Mixing_Level1", c("1", "1", "0.3"))   # X3 (level 2) enters level-1 pool
+m2  <- chk_ok("two-level model with cross-level Mixing builds",
+              build_compartmental_model(mp2, sc$dataCombined, solver = solver_control(backend = "r")))
+chk("Nw1 includes the out-of-level compartment X[3]",
+    grepl("real Nw1 = X[1]+X[2]+(0.3)*X[3];", m2$model$stan_code, fixed = TRUE))
+
+th_section("Pool_<level>: the pool as a function of the level head counts")
+mpP <- sc$modelParams
+mpP[["_Level1"]] <- c("1", "2", rep("", nrow(mpP) - 2))   # level 1 = {X1, X2}
+mpP <- add_col(mpP, "_Level2", c("3"))                    # level 2 = {X3}
+mpP <- add_col(mpP, "Pool_Level1", c("N1 + 0.3*N2"))      # saturating cross-level pool
+mP  <- chk_ok("Pool_<level> model builds",
+              suppressMessages(build_compartmental_model(mpP, sc$dataCombined, solver = solver_control(backend = "r"))))
+chk("Stan floors the pool with fmax (Stan's binary max)",
+    grepl("real Nw1 = fmax((N1+0.3*N2), 1e-8);", mP$model$stan_code, fixed = TRUE))
+chk("Julia floors the pool with max",
+    grepl("Nw1 = max((N1+0.3*N2), 1e-8)", mP$model$julia_code, fixed = TRUE))
+chk("R floors the pool with max", {
+  b <- paste(deparse(body(mP$model$compartmental_function)), collapse = "\n")
+  grepl("Nw1 = max((N1 + 0.3 * N2), 1e-08)", b, fixed = TRUE) })
+chk("transmission divides by the pool Nw1", grepl("/Nw1", mP$model$stan_code, fixed = TRUE))
+
 th_section(".time_grid warns on a non-integer year")
 warns <- function(mp) {
   w <- character(0)

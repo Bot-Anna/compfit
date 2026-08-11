@@ -63,8 +63,9 @@ chk("Julia keyword 'end' is a reserved name",
     grepl("reserved", errmsg(mk(c("beta=[0,2]", "gamma=[0,1]", "end=[0,1]")))))
 chk("codegen variable 't' is a reserved name",
     grepl("reserved", errmsg(mk(c("beta=[0,2]", "gamma=[0,1]", "t=[0,1]")))))
-# Codegen-generated variables: level pops, sums, term temporaries.
-for (nm in c("N1=[0,1]", "N2=[0,1]", "total_pop=[0,1]", "secOrd_1_2=[0,1]", "time=[0,1]"))
+# Codegen-generated variables: level pops, weighted pools, sums, term temporaries.
+for (nm in c("N1=[0,1]", "N2=[0,1]", "Nw1=[0,1]", "Nw2=[0,1]", "total_pop=[0,1]",
+             "secOrd_1_2=[0,1]", "time=[0,1]"))
   chk(paste("collision name", sub("=.*", "", nm), "rejected"),
       grepl("reserved", errmsg(mk(c("beta=[0,2]", "gamma=[0,1]", nm)))))
 # But close look-alikes that are NOT generated must still pass.
@@ -100,6 +101,38 @@ chk("$ in a Quadratic coefficient is rejected",
 chk("$ in a Constant cell is rejected", {
   m <- mk(c("beta=[0,2]", "gamma=[0,1]")); m$Constant <- c("$0.3*time", "0", rep("", nrow(m) - 2))
   grepl("removed", errmsg(m)) })
+
+th_section("Mixing_<level> columns (full-pool denominator weights)")
+add_mix <- function(mp, col, vals) { mp[[col]] <- c(as.character(vals), rep("", nrow(mp) - length(vals))); mp }
+chk("valid numeric Mixing column passes",
+    is.na(errmsg(add_mix(mk(c("beta=[0,2]", "gamma=[0,1]")), "Mixing_Level1", c("1", "0.3")))))
+chk("Mixing weight referencing a declared parameter passes",
+    is.na(errmsg(add_mix(mk(c("beta=[0,2]", "gamma=[0,1]", "w=[0,1]")), "Mixing_Level1", c("1", "w")))))
+chk("negative Mixing weight is rejected",
+    grepl("must be >= 0", errmsg(add_mix(mk(c("beta=[0,2]", "gamma=[0,1]")), "Mixing_Level1", c("1", "-0.5")))))
+chk("Mixing column without a matching level column is rejected",
+    grepl("no matching level column", errmsg(add_mix(mk(c("beta=[0,2]", "gamma=[0,1]")), "Mixing_Ghost", c("1", "1")))))
+chk("undeclared symbol in a Mixing weight is caught",
+    grepl("not a declared", errmsg(add_mix(mk(c("beta=[0,2]", "gamma=[0,1]")), "Mixing_Level1", c("1", "wat")))))
+
+th_section("Pool_<level> (denominator as a function of the level populations)")
+perr <- function(mp) suppressMessages(errmsg(mp))   # Pool columns emit an info note
+chk("Pool expression referencing the level head counts passes",
+    is.na(perr(add_mix(mk(c("beta=[0,2]", "gamma=[0,1]")), "Pool_Level1", c("N1 + 0.5*total_pop")))))
+chk("undeclared symbol in a Pool expression is caught",
+    grepl("not a declared", perr(add_mix(mk(c("beta=[0,2]", "gamma=[0,1]")), "Pool_Level1", c("N1 + wat")))))
+chk("Pool without a matching level column is rejected",
+    grepl("no matching level column", perr(add_mix(mk(c("beta=[0,2]", "gamma=[0,1]")), "Pool_Ghost", c("N1")))))
+chk("Pool and Mixing on the same level is rejected", {
+  m <- add_mix(mk(c("beta=[0,2]", "gamma=[0,1]")), "Pool_Level1", c("N1"))
+  m <- add_mix(m, "Mixing_Level1", c("1", "1"))
+  grepl("both a", perr(m)) })
+chk("a Pool column emits the divide-by-zero note", {
+  msgs <- character(0)
+  withCallingHandlers(
+    validate_modelParams(add_mix(mk(c("beta=[0,2]", "gamma=[0,1]")), "Pool_Level1", c("N1"))),
+    message = function(m) { msgs <<- c(msgs, conditionMessage(m)); invokeRestart("muffleMessage") })
+  any(grepl("floored at a small positive value", msgs)) })
 
 th_section("all shipped fixtures pass")
 for (nm in c("minimal", "medium", "SI", "SIS", "SIR", "SEIR", "SIR_priors", "SEIR_priors")) {

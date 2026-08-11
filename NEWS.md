@@ -1,5 +1,25 @@
 # compfit (development version)
 
+## New features
+
+* **`Mixing_<level>` columns** weight how each compartment enters a level's
+  transmission denominator. A companion to a `_<level>` column (e.g.
+  `Mixing_Level1` for `_Level1`), it holds one weight per compartment defining an
+  *effective* mixing pool `Nw = sum_k w_k X[k]` that normalises the second-order
+  terms for that level, in place of the raw head count. A blank cell is the
+  membership default (1 in-level, else 0), so an absent or all-blank column
+  reproduces the previous behaviour exactly. A non-zero weight on an out-of-level
+  compartment pulls it into the pool (commuting / contact-matrix mixing). The raw
+  `N<level>` and `total_pop` are left unchanged. Works on all three backends.
+* **`Pool_<level>` columns** express a level's transmission denominator as a whole
+  *function of the level populations* -- a single expression in `N1..Nk` /
+  `total_pop` (plus parameters, `Functions`, and `time`), e.g. `N1 + c*N2/(1+N2/K)`
+  for a saturating cross-level pool. It is the alternative to `Mixing_<level>` (a
+  level uses one or the other) and is floored at a small positive value to guard
+  against divide-by-zero; `validate_modelParams()` notes that the pool must stay
+  positive across the solve. Level head counts `N1..Nk` and `total_pop` are now
+  accepted symbols in coefficient / pool expressions.
+
 ## Breaking changes
 
 * **Inline `$`-functions have been removed.** A coefficient cell (in `Linear<j>`,

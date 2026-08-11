@@ -88,7 +88,65 @@ compartmentalFunction <- function(modelParams,
       level_compartments[[level]] <- .comp_index(vals, comp_names)
     }
   }
-  
+
+  ## ---- Per-level mixing pools (full-pool transmission denominators) ----
+  # A level column `_<name>` may carry a companion that REPLACES the raw headcount
+  # N<L> in the transmission (second-order) denominators for that level with a
+  # weighted / custom "mixing pool" Nw<L>. Two mutually-exclusive forms:
+  #   * `Mixing_<name>` -- ONE weight per compartment (aligned to States order):
+  #     Nw<L> = sum_k w_kL * X[k]. A blank cell is the membership DEFAULT (1 if k
+  #     is in level L, else 0), so an absent / all-blank column reproduces N<L>
+  #     exactly. A non-zero weight on an out-of-level compartment pulls it into the
+  #     pool (commuting / contact-matrix mixing).
+  #   * `Pool_<name>` -- ONE expression giving the whole pool as a function of the
+  #     level head counts (N1..Nk, total_pop), parameters, Functions, and time,
+  #     e.g. `N1 + c*N2/(1+N2/K)` (a saturating cross-level pool). Floored at a
+  #     small positive value so a pool that momentarily hits 0 cannot divide by
+  #     zero; a genuinely non-positive pool is a modelling error (see validate).
+  # Raw N<L> and total_pop are left untouched (still the true head counts, and
+  # still user-referenceable). Weights/expressions follow the coefficient grammar.
+  .NW_FLOOR        <- "1e-8"
+  level_names      <- if (length(compartment_cols)) sub("^_", "", compartment_cols) else character(0)
+  mixing_cols      <- if (length(level_names)) paste0("Mixing_", level_names) else character(0)
+  pool_cols        <- if (length(level_names)) paste0("Pool_",   level_names) else character(0)
+  has_mixing       <- mixing_cols %in% names(data_vals_coeffs)
+  has_pool         <- pool_cols   %in% names(data_vals_coeffs)
+  level_has_mixing <- has_mixing | has_pool              # "has a custom denominator"
+  # The denominator token for level L: the custom pool if it has one, else the raw
+  # headcount (so models without a Mixing/Pool column are byte-identical).
+  denom <- function(L) {
+    if (length(level_has_mixing) >= L && level_has_mixing[L]) paste0("Nw", L)
+    else paste0("N", L)
+  }
+  # R-syntax `Nw<L> = ...` definitions, emitted AFTER parameter unpacking and the
+  # Functions block by every backend (a weight/expression may use a fitted
+  # parameter); N1..Nk and total_pop are already in scope from the top of the body.
+  nw_defs <- character(0)
+  for (L in seq_along(level_compartments)) {
+    if (length(level_has_mixing) < L || !level_has_mixing[L]) next
+    if (has_pool[L]) {                                   # Pool_<name>: a pool expression
+      pv   <- as.character(data_vals_coeffs[[pool_cols[L]]])
+      pv   <- pv[!is.na(pv) & nzchar(trimws(pv))]
+      expr <- gsub(" ", "", trimws(pv[1]))
+      rhs  <- paste0("max((", expr, "), ", .NW_FLOOR, ")")   # positive floor guards /0
+    } else {                                             # Mixing_<name>: per-compartment weights
+      wcol  <- as.character(data_vals_coeffs[[mixing_cols[L]]])[seq_len(number_of_comps)]
+      terms <- character(0)
+      for (k in seq_len(number_of_comps)) {
+        w <- if (k <= length(wcol)) trimws(wcol[k]) else NA_character_
+        if (is.na(w) || !nzchar(w))                     # blank -> membership default
+          w <- if (k %in% level_compartments[[L]]) "1" else "0"
+        w <- gsub(" ", "", w)
+        if (w == "0") next
+        terms <- c(terms, if (w == "1") paste0("X[", k, "]")
+                          else paste0("(", w, ")*X[", k, "]"))
+      }
+      # All-zero pool would divide by zero; fall back to the raw headcount.
+      rhs <- if (length(terms)) paste(terms, collapse = "+") else paste0("N", L)
+    }
+    nw_defs <- c(nw_defs, paste0("Nw", L, " = ", rhs))
+  }
+
   ## ---- Model parameters of first order ----
   # First-order coefficients live in ONE column per compartment: Linear1,
   # Linear2, ..., Linear<n> (mirroring the Quadratic<j> layout; replaces the old
@@ -243,21 +301,21 @@ compartmentalFunction <- function(modelParams,
             goes_to <- as.character(.comp_index(goto_token, comp_names))
             help_string <- sub("^\\*[^*]+\\*(.*)$", "\\1", help_string)
 
-            # Same vs different mixing level decides the normalising denominator:
-            # a same-level term divides by that level's head count N<level>, a
-            # cross-level term by the source (other) compartment's level. A
+            # Same vs different mixing level decides the normalising denominator.
+            # denom() yields Nw<level> when that level has a Mixing_<name> column
+            # (full-pool weighting) and the raw N<level> headcount otherwise. A
             # time-varying coefficient is a named `Functions` entry referenced here.
             if (current_level == other_current_level) {
               extra_string <- paste(c("(", help_string, "*",
                                       "X[", j, "]*",
                                       "X[", i, "])/",
-                                      "N", current_level),
+                                      denom(current_level)),
                                     collapse="")
             } else {
               extra_string <- paste(c("(", help_string, "*",
                                       "X[", j, "]*",
                                       "X[", i,"])/",
-                                      "(N", other_current_level, ")"),
+                                      "(", denom(other_current_level), ")"),
                                     collapse="")
             }
             vec_help_expressions_second_order <- append(
@@ -384,9 +442,16 @@ compartmentalFunction <- function(modelParams,
                              collapse = "")
   
   # Adds all the functions that are set
-  master_expression <- paste(c(master_expression, functions_expression), 
+  master_expression <- paste(c(master_expression, functions_expression),
                              collapse = "")
-  
+
+  # Adds the weighted-mixing pools Nw<L> (full-pool transmission denominators).
+  # After parameter unpacking and the functions block so a weight may itself be a
+  # fitted parameter or a Functions entry; before the second-order terms, which
+  # divide by them. Empty for a model with no Mixing_<name> column.
+  for (nd in nw_defs)
+    master_expression <- paste(c(master_expression, "\n ", nd), collapse = "")
+
   # Adds the second order terms using vec_help_expressions_second_order.
   # seq_along (not 1:length): empty for a purely linear model -> skip cleanly.
   for (i in seq_along(vec_help_expressions_second_order)) {
@@ -425,6 +490,7 @@ compartmentalFunction <- function(modelParams,
     vec_main = vec_main,
     number_of_comps = number_of_comps,
     level_compartments = level_compartments,
+    nw_defs = nw_defs,
     cutoff = cutoff,
     startpoint = startpoint
     )
@@ -440,6 +506,7 @@ compartmentalFunction <- function(modelParams,
       vec_main = vec_main,
       number_of_comps = number_of_comps,
       level_compartments = level_compartments,
+      nw_defs = nw_defs,
       cutoff = cutoff,
       startpoint = startpoint
     ), error = function(e) NULL)
@@ -494,6 +561,7 @@ buildJuliaODEFunction <- function(sir_expression,
                                    vec_main,
                                    number_of_comps,
                                    level_compartments,
+                                   nw_defs = character(0),
                                    cutoff,
                                    startpoint) {
 
@@ -635,6 +703,16 @@ buildJuliaODEFunction <- function(sir_expression,
   func_expr_julia <- gsub("\\bstartpoint\\b", as.character(startpoint), func_expr_julia)
 
   ## ----------------------------------------------------------
+  ## 4b. Weighted-mixing pools Nw<L> (full-pool denominators)
+  ##     After param unpacking + functions, before secOrd uses them.
+  ## ----------------------------------------------------------
+  nw_lines <- ""
+  for (nd in nw_defs) {
+    if (!is.na(nd) && nzchar(trimws(nd)))
+      nw_lines <- paste0(nw_lines, "\n    ", r_to_julia(nd))
+  }
+
+  ## ----------------------------------------------------------
   ## 5. Second-order (secOrd) initialisation expressions
   ## ----------------------------------------------------------
   sec_ord_lines <- ""
@@ -660,6 +738,7 @@ buildJuliaODEFunction <- function(sir_expression,
     n_lines, "\n",
     sir_expr_julia, "\n",
     func_expr_julia, "\n",
+    nw_lines, "\n",
     sec_ord_lines, "\n",
     dX_lines, "\n",
     '    return nothing\n',

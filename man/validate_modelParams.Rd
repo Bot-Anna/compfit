@@ -20,19 +20,23 @@ On any problem it raises a single error listing every issue found, each naming
 the column/cell and what is wrong. Checks:
 \itemize{
   \item fixed \code{States}/\code{Parameters} values and \code{Linear}/
-    \code{Quadratic}/\code{Constant}/\code{Functions}/\code{Conditions}
-    expressions reference only declared symbols (parameters, \code{_0}
-    aliases, the declared states -- \code{X1..Xn} or named, e.g.
-    \code{S}/\code{I}/\code{R} --, functions, \code{time}), so a typo like
-    \code{*2*-bta} is caught;
+    \code{Quadratic}/\code{Constant}/\code{Functions}/\code{Conditions}/
+    \code{Mixing_<level>} expressions reference only declared symbols
+    (parameters, \code{_0} aliases, the declared states -- \code{X1..Xn} or
+    named, e.g. \code{S}/\code{I}/\code{R} --, functions, \code{time}), so a
+    typo like \code{*2*-bta} is caught;
   \item box priors \code{[lo,hi]} are two numbers with \code{lo < hi};
   \item distribution priors have numeric arguments;
   \item no parameter/state/function name collides with a Julia keyword or a
     codegen variable (\code{t}/\code{p}/\code{X}/\code{du}/\code{dX}/
-    \code{parms}, \code{N1..}, \code{total_pop}, \code{secOrd_i_j}, or another
-    quantity's \code{_0} alias);
+    \code{parms}, \code{N1..}, \code{Nw1..}, \code{total_pop},
+    \code{secOrd_i_j}, or another quantity's \code{_0} alias);
   \item \code{Quadratic} cells are \code{*goto*coeff} with a target given as a
     compartment index (\code{1..n}) or a State name (e.g. \code{*I*});
+  \item each \code{Mixing_<level>} / \code{Pool_<level>} column has a matching
+    \code{_<level>} index column (\code{Mixing} holds non-negative per-compartment
+    weights; \code{Pool} holds a single pool expression, and the two are mutually
+    exclusive for a level);
   \item \code{Others} has numeric \code{startpoint}/\code{endpoint}/\code{partition}.
 }
 }
