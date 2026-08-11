@@ -68,9 +68,9 @@ compartmentalFunction <- function(modelParams,
   
   ## ---- Number of levels and their compartments ----
   # A "level" is a subpopulation the mixing/normalisation happens within (age,
-  # sex, region, ...), declared by any '_'-prefixed column (the name after '_'
-  # is free -- _Level1, _Age1, _Region1 all work; detection is by the '_'
-  # prefix, not the word "Level").
+  # sex, region, ...), declared by a `Level_<id>` column (the id after `Level_`
+  # is free -- Level_1, Level_LA, Level_Age1 all work; it names the level and
+  # drives the companions N_<id> / Mixing_<id> / Pool_<id>).
   level_compartments <- list()
   if (length(compartment_cols) == 0) {
     # No level column at all: default to a SINGLE level holding every
@@ -106,7 +106,7 @@ compartmentalFunction <- function(modelParams,
   # Raw N<L> and total_pop are left untouched (still the true head counts, and
   # still user-referenceable). Weights/expressions follow the coefficient grammar.
   .NW_FLOOR        <- "1e-8"
-  level_names      <- if (length(compartment_cols)) sub("^_", "", compartment_cols) else character(0)
+  level_names      <- if (length(compartment_cols)) sub("^Level_", "", compartment_cols, ignore.case = TRUE) else character(0)
   # Named aliases for the level head counts: alongside the positional N1..Nk, emit
   # `N_<levelname> = N<i>` (e.g. `N_LA = N1`) so a coefficient / Function / Pool can
   # refer to a stratum by name instead of tracking its column order. Only when the

@@ -18,7 +18,7 @@ others <- c("startpoint=2000", "endpoint=2005", "partition=4")
 sheet <- function(params) {
   states <- c("*X1=N0_0*(1-i0_0)", "*X2=i0_0*N0_0", "*X3=0")
   nr <- 9L; pad <- function(x) c(as.character(x), rep("", nr - length(x)))
-  df <- data.frame(`_Level1` = pad(1:3), Others = pad(others), States = pad(states),
+  df <- data.frame(`Level_1` = pad(1:3), Others = pad(others), States = pad(states),
                    Functions = pad(character(0)), Parameters = pad(params),
                    Conditions = pad(character(0)), check.names = FALSE, stringsAsFactors = FALSE)
   for (i in 1:3) { df[[paste0("Linear", i)]] <- pad(lin[i, ]); df[[paste0("Quadratic", i)]] <- pad(quad[[i]]) }

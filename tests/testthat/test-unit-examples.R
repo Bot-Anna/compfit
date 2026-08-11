@@ -100,7 +100,7 @@ chk("term-less compartment yields dX = 0 (well-formed)",
     any(grepl("dX[3] = 0", strsplit(mod3$stan_code, "\n")[[1]], fixed = TRUE)))
 
 th_section("SIR_priors / SEIR_priors -- all prior distributions + families")
-# The prior-showcase folders use "_Level1" (not "_Country1") and, between them,
+# The prior-showcase folders use "Level_1" (not a "Country" column) and, between them,
 # every prior distribution and every likelihood family.
 prior_dists <- function(sc) {
   ps <- sc$modelParams$Parameters
@@ -108,8 +108,8 @@ prior_dists <- function(sc) {
   unname(vapply(ps, function(e) parsePrior(sub("^[^=]*=", "", e))$dist, character(1)))
 }
 sc <- load_ex("SIR_priors")
-chk("SIR_priors uses _Level (not _Country)",
-    any(grepl("^_Level", names(sc$modelParams))) && !any(grepl("Country", names(sc$modelParams))))
+chk("SIR_priors uses Level_ (not Country)",
+    any(grepl("^Level_", names(sc$modelParams))) && !any(grepl("Country", names(sc$modelParams))))
 chk("SIR_priors builds", { compfit:::.build_model(sc$modelParams, backend = "r"); TRUE })
 d1 <- prior_dists(sc)
 chk("SIR_priors has StudentT/Normal/Beta/Uniform priors",
@@ -129,7 +129,7 @@ chk("together: all six prior distributions covered",
 
 th_section("SIR_named -- named compartments (S/I/R) reproduce the X1..Xn twin")
 # The naming feature: States column names the compartments AND fixes their
-# order; _Level and the data formulas reference them by name; rate columns are
+# order; Level_ and the data formulas reference them by name; rate columns are
 # Linear<name>/Quadratic<name>. Fitting must be identical to the X1..Xn SIR.
 sc_named <- load_ex("SIR_named")
 chk("SIR_named has 3 compartments",      ncomp(sc_named) == 3)

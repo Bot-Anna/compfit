@@ -63,7 +63,7 @@ validate_modelParams <- function(modelParams) {
   cs <- tryCatch(numberOfComps(modelParams), error = function(e) NULL)
   if (is.null(cs) || !is.finite(cs$number_of_comps) || cs$number_of_comps < 1)
     stop("validate_modelParams: could not determine the number of compartments ",
-         "from the '_'-prefixed index column(s).", call. = FALSE)
+         "from the 'Level_<id>' index column(s).", call. = FALSE)
   n <- cs$number_of_comps
   state_names <- .compartments(modelParams)          # canonical names (X1..Xn or S,I,R,...)
   if (length(state_names) < n) state_names <- union(state_names, paste0("X", seq_len(n)))
@@ -78,7 +78,7 @@ validate_modelParams <- function(modelParams) {
   # allow them as referenceable symbols.
   n_levels     <- max(1L, length(cs$compartment_cols))
   n_alias_names <- if (length(cs$compartment_cols))
-                     paste0("N_", sub("^_", "", cs$compartment_cols)) else character(0)
+                     paste0("N_", sub("^Level_", "", cs$compartment_cols, ignore.case = TRUE)) else character(0)
   allowed <- unique(c(param_names, paste0(param_names, "_0"), state_names,
                       func_names, "time", "t", "N", "pi",
                       paste0("N", seq_len(n_levels)), n_alias_names, "total_pop"))
@@ -90,7 +90,7 @@ validate_modelParams <- function(modelParams) {
   lin_quad_ok <- grepl("^(Linear|Quadratic)[0-9]+$", names(modelParams)) |
     names(modelParams) %in% c(paste0("Linear", state_names),
                               paste0("Quadratic", state_names))
-  recognised <- grepl("^_", names(modelParams)) | lin_quad_ok |
+  recognised <- grepl("^Level_", names(modelParams), ignore.case = TRUE) | lin_quad_ok |
     grepl("^(Mixing|Pool)_", names(modelParams)) |
     names(modelParams) %in% c("Others", "States", "Functions", "Parameters", "Conditions", "Constant")
   if (any(!recognised))
@@ -98,7 +98,7 @@ validate_modelParams <- function(modelParams) {
       paste0("modelParams has unrecognised column(s): %s -- a typo? Expected ",
              "States / Parameters / Others / Functions / Conditions / Constant / ",
              "Linear<j> / Quadratic<j> / Mixing_<level> / Pool_<level> and a ",
-             "'_'-prefixed index column."),
+             "'Level_<id>' index column."),
       paste(names(modelParams)[!recognised], collapse = ", ")), call. = FALSE)
   if (!"States" %in% names(modelParams))     add("missing 'States' column.")
   if (!"Parameters" %in% names(modelParams))
@@ -258,7 +258,7 @@ validate_modelParams <- function(modelParams) {
   # Each needs a matching '_<level>' index column; cells are non-negative
   # numbers or coefficient expressions (blank -> membership default).
   mix_cols  <- grep("^Mixing_", names(modelParams), value = TRUE)
-  lvl_names <- sub("^_", "", cs$compartment_cols)
+  lvl_names <- sub("^Level_", "", cs$compartment_cols, ignore.case = TRUE)
   for (mc in mix_cols) {
     lname <- sub("^Mixing_", "", mc)
     if (!(lname %in% lvl_names))

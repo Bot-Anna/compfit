@@ -1,20 +1,20 @@
 test_that("test-unit-modelbuild", {
 # ============================================================
 # test-unit-modelbuild.R   (pure R; no Julia)
-# numberOfComps numeric coercion of _Level indices (the text-read fix), and
+# numberOfComps numeric coercion of Level_ indices (the text-read fix), and
 # .bounds handling of named / empty / unnamed fitted quantities.
 # ============================================================
 th_load_pure(c("utils.R", "numberOfComps.R", "fitCompartmentalModel.R"))
 
-th_section("numberOfComps: _Level indices coerced numerically")
+th_section("numberOfComps: Level_ indices coerced numerically")
 # Simulate modelParams read all-as-text: compartment indices arrive as strings.
-mp <- data.frame(`_Level` = c("1", "2", "10", NA),
+mp <- data.frame(`Level_1` = c("1", "2", "10", NA),
                  Other       = c("a", "b", "c", "d"),
                  check.names = FALSE, stringsAsFactors = FALSE)
 nc <- numberOfComps(mp)
 chk("max is 10 not lexicographic '2'", nc$number_of_comps == 10)
 chk("number_of_comps is numeric", is.numeric(nc$number_of_comps))
-chk("compartment_cols detected by ^_", identical(nc$compartment_cols, "_Level"))
+chk("compartment_cols detected by ^Level_", identical(nc$compartment_cols, "Level_1"))
 
 th_section(".bounds: named fitted quantities")
 sap_named <- list(

@@ -309,12 +309,12 @@ into days, partition = 12 means the division is by months.
 
 #### Optional
 
-- \_Level\<i\>
+- Level\_\<id\>
 - Functions
 - Conditions
 
 ```{r show-modelParams-optional, results='asis', echo = FALSE}
-opt_cols <- c("_Level1", "Functions", "Conditions")
+opt_cols <- c("Level_1", "Functions", "Conditions")
 opt <- sc$modelParams[, opt_cols]
 # keep only rows that actually hold something (drops the empty trailing rows)
 opt <- opt[apply(opt, 1, function(r) any(!is.na(r) & trimws(as.character(r)) != "")), ]
@@ -323,7 +323,7 @@ tbl <- gsub("*", "&ast;", tbl, fixed = TRUE)   # literal * -> entity (Functions 
 cat(tbl, sep = "")
 ```
 
-**\_Level1** in our example is optional (but the underscore before the name isn't!), and it encodes which compartment belongs to which sublevel. A typical sublevel divison would be by age, or by biological sex, if there is no uniform mixing. So if we had 2 levels, one would need to specify to which \_Level1 or \_Level2 a
+**Level\_1** in our example is optional (but the `Level_` prefix isn't!), and it encodes which compartment belongs to which sublevel. A typical sublevel divison would be by age, or by biological sex, if there is no uniform mixing. So if we had 2 levels, one would need to specify to which Level\_1 or Level\_2 a
 compartment belongs, either by its corresponding number or by its name.
 
 We already implicated how **Functions** is used: and indeed, the gamma_t

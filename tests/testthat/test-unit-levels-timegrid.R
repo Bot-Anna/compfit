@@ -16,24 +16,24 @@ sc <- load_scenario(fixture_dir("SIR"), combined_file = "dataCombined.csv",
                     dummy_file = "dataDummy.csv", params_file = "modelParams.csv")
 
 th_section("no level column -> single auto-level of all compartments")
-mp0 <- sc$modelParams; mp0[["_Level1"]] <- NULL
+mp0 <- sc$modelParams; mp0[["Level_1"]] <- NULL
 chk("numberOfComps still counts via States", numberOfComps(mp0)$number_of_comps == 3)
-chk("no '_' column detected", length(numberOfComps(mp0)$compartment_cols) == 0)
+chk("no 'Level_' column detected", length(numberOfComps(mp0)$compartment_cols) == 0)
 m0 <- chk_ok("quadratic model builds without a level column",
              build_compartmental_model(mp0, sc$dataCombined, solver = solver_control(backend = "r")))
 chk("N1 spans every compartment",
     grepl("real N1 = X[1]+X[2]+X[3]", m0$model$stan_code, fixed = TRUE))
 
-th_section("level column name is free (detected by '_' prefix, not \"Level\")")
-mpA <- sc$modelParams; mpA[["_Age1"]] <- mpA[["_Level1"]]; mpA[["_Level1"]] <- NULL
-chk("'_Age1' is recognised as a level column",
-    identical(numberOfComps(mpA)$compartment_cols, "_Age1"))
-chk_ok("model with _Age1 builds",
+th_section("level column id is free (any Level_<id>)")
+mpA <- sc$modelParams; mpA[["Level_Age1"]] <- mpA[["Level_1"]]; mpA[["Level_1"]] <- NULL
+chk("'Level_Age1' is recognised as a level column",
+    identical(numberOfComps(mpA)$compartment_cols, "Level_Age1"))
+chk_ok("model with Level_Age1 builds",
        build_compartmental_model(mpA, sc$dataCombined, solver = solver_control(backend = "r")))
 
 th_section("no-level model simulates and conserves a closed population")
 mps <- read_data_file(file.path(fixture_dir("SIR_sim"), "modelParams.csv"))
-mps[["_Level1"]] <- NULL
+mps[["Level_1"]] <- NULL
 dds <- read_data_file(file.path(fixture_dir("SIR_sim"), "dataDummy.csv"))
 sim <- chk_ok("no-level SIR simulates",
               simulate_model(mps, data_dummy = dds, solver = solver_control(backend = "r")))
@@ -44,8 +44,8 @@ th_section("Mixing_<level> weights the transmission denominator (full pool)")
 add_col <- function(mp, name, vals)
   { mp[[name]] <- c(as.character(vals), rep("", nrow(mp) - length(vals))); mp }
 # Down-weight X2 in level 1's mixing pool: Nw1 = X1 + 0.5*X2 + X3.
-mpM <- add_col(sc$modelParams, "Mixing_Level1", c("1", "0.5", "1"))
-mM  <- chk_ok("model with Mixing_Level1 builds",
+mpM <- add_col(sc$modelParams, "Mixing_1", c("1", "0.5", "1"))
+mM  <- chk_ok("model with Mixing_1 builds",
               build_compartmental_model(mpM, sc$dataCombined, solver = solver_control(backend = "r")))
 chk("raw N1 (true head count) is left intact",
     grepl("real N1 = X[1]+X[2]+X[3];", mM$model$stan_code, fixed = TRUE))
@@ -67,9 +67,9 @@ chk("transmission still divides by the raw N1", grepl("/N1", m0m$model$stan_code
 
 th_section("Mixing can pull a compartment from another level (cross-level pool)")
 mp2 <- sc$modelParams
-mp2[["_Level1"]] <- c("1", "2", rep("", nrow(mp2) - 2))   # level 1 = {X1, X2}
-mp2 <- add_col(mp2, "_Level2", c("3"))                     # level 2 = {X3}
-mp2 <- add_col(mp2, "Mixing_Level1", c("1", "1", "0.3"))   # X3 (level 2) enters level-1 pool
+mp2[["Level_1"]] <- c("1", "2", rep("", nrow(mp2) - 2))   # level 1 = {X1, X2}
+mp2 <- add_col(mp2, "Level_2", c("3"))                     # level 2 = {X3}
+mp2 <- add_col(mp2, "Mixing_1", c("1", "1", "0.3"))   # X3 (level 2) enters level-1 pool
 m2  <- chk_ok("two-level model with cross-level Mixing builds",
               build_compartmental_model(mp2, sc$dataCombined, solver = solver_control(backend = "r")))
 chk("Nw1 includes the out-of-level compartment X[3]",
@@ -77,9 +77,9 @@ chk("Nw1 includes the out-of-level compartment X[3]",
 
 th_section("Pool_<level>: the pool as a function of the level head counts")
 mpP <- sc$modelParams
-mpP[["_Level1"]] <- c("1", "2", rep("", nrow(mpP) - 2))   # level 1 = {X1, X2}
-mpP <- add_col(mpP, "_Level2", c("3"))                    # level 2 = {X3}
-mpP <- add_col(mpP, "Pool_Level1", c("N1 + 0.3*N2"))      # saturating cross-level pool
+mpP[["Level_1"]] <- c("1", "2", rep("", nrow(mpP) - 2))   # level 1 = {X1, X2}
+mpP <- add_col(mpP, "Level_2", c("3"))                    # level 2 = {X3}
+mpP <- add_col(mpP, "Pool_1", c("N1 + 0.3*N2"))      # saturating cross-level pool
 mP  <- chk_ok("Pool_<level> model builds",
               suppressMessages(build_compartmental_model(mpP, sc$dataCombined, solver = solver_control(backend = "r"))))
 chk("Stan floors the pool with fmax (Stan's binary max)",
@@ -93,9 +93,9 @@ chk("transmission divides by the pool Nw1", grepl("/Nw1", mP$model$stan_code, fi
 
 th_section("named level head-count aliases N_<level> (all backends)")
 mpA <- sc$modelParams
-mpA[["_Level1"]] <- NULL
-mpA <- add_col(mpA, "_LA", c("1", "2"))   # level 1 -> alias N_LA
-mpA <- add_col(mpA, "_HA", c("3"))        # level 2 -> alias N_HA
+mpA[["Level_1"]] <- NULL
+mpA <- add_col(mpA, "Level_LA", c("1", "2"))   # level 1 -> alias N_LA
+mpA <- add_col(mpA, "Level_HA", c("3"))        # level 2 -> alias N_HA
 mpA$Functions[2] <- "share <- N_LA/(N_LA + N_HA)"   # reference levels BY NAME
 mA <- chk_ok("model referencing N_<level> by name builds",
              build_compartmental_model(mpA, sc$dataCombined, solver = solver_control(backend = "r")))

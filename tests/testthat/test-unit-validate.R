@@ -12,7 +12,7 @@ mk <- function(params, states = c("*X1=990", "*X2=10"),
                q1 = c("0", "*2*-beta"), linear1 = c("0", "0"),
                others = c("startpoint=2000", "endpoint=2005", "partition=4"),
                functions = c("", "")) {
-  cols <- list(`_Level1` = c("1", "2"), Others = others, States = states,
+  cols <- list(`Level_1` = c("1", "2"), Others = others, States = states,
                Functions = functions, Parameters = params, Conditions = "",
                Linear1 = linear1, Quadratic1 = q1,
                Linear2 = c("0", "-gamma"), Quadratic2 = c("0", "0"))
@@ -105,44 +105,58 @@ chk("$ in a Constant cell is rejected", {
 th_section("Mixing_<level> columns (full-pool denominator weights)")
 add_mix <- function(mp, col, vals) { mp[[col]] <- c(as.character(vals), rep("", nrow(mp) - length(vals))); mp }
 chk("valid numeric Mixing column passes",
-    is.na(errmsg(add_mix(mk(c("beta=[0,2]", "gamma=[0,1]")), "Mixing_Level1", c("1", "0.3")))))
+    is.na(errmsg(add_mix(mk(c("beta=[0,2]", "gamma=[0,1]")), "Mixing_1", c("1", "0.3")))))
 chk("Mixing weight referencing a declared parameter passes",
-    is.na(errmsg(add_mix(mk(c("beta=[0,2]", "gamma=[0,1]", "w=[0,1]")), "Mixing_Level1", c("1", "w")))))
+    is.na(errmsg(add_mix(mk(c("beta=[0,2]", "gamma=[0,1]", "w=[0,1]")), "Mixing_1", c("1", "w")))))
 chk("negative Mixing weight is rejected",
-    grepl("must be >= 0", errmsg(add_mix(mk(c("beta=[0,2]", "gamma=[0,1]")), "Mixing_Level1", c("1", "-0.5")))))
-chk("Mixing column without a matching level column is rejected",
-    grepl("no matching level column", errmsg(add_mix(mk(c("beta=[0,2]", "gamma=[0,1]")), "Mixing_Ghost", c("1", "1")))))
+    grepl("must be >= 0", errmsg(add_mix(mk(c("beta=[0,2]", "gamma=[0,1]")), "Mixing_1", c("1", "-0.5")))))
 chk("undeclared symbol in a Mixing weight is caught",
-    grepl("not a declared", errmsg(add_mix(mk(c("beta=[0,2]", "gamma=[0,1]")), "Mixing_Level1", c("1", "wat")))))
+    grepl("not a declared", errmsg(add_mix(mk(c("beta=[0,2]", "gamma=[0,1]")), "Mixing_1", c("1", "wat")))))
+
+# A Mixing_<name> column REQUIRES a Level_<name> column with the same <name>
+# (the name may be a number or a string). The fixture's level is Level_1.
+chk("numeric-id Mixing_1 matches Level_1 -> passes",
+    is.na(errmsg(add_mix(mk(c("beta=[0,2]", "gamma=[0,1]")), "Mixing_1", c("1", "1")))))
+chk("numeric-id Mixing_2 without Level_2 is rejected",
+    grepl("no matching level column", errmsg(add_mix(mk(c("beta=[0,2]", "gamma=[0,1]")), "Mixing_2", c("1", "1")))))
+# String-named level: rename the fixture level to Level_grpA.
+mk_named <- function(params, mixcol, vals) {
+  m <- mk(params); m[["Level_grpA"]] <- m[["Level_1"]]; m[["Level_1"]] <- NULL
+  add_mix(m, mixcol, vals)
+}
+chk("string-id Mixing_grpA matches Level_grpA -> passes",
+    is.na(errmsg(mk_named(c("beta=[0,2]", "gamma=[0,1]"), "Mixing_grpA", c("1", "0.4")))))
+chk("string-id Mixing_grpB without Level_grpB is rejected",
+    grepl("no matching level column", errmsg(mk_named(c("beta=[0,2]", "gamma=[0,1]"), "Mixing_grpB", c("1", "1")))))
 
 th_section("Pool_<level> (denominator as a function of the level populations)")
 perr <- function(mp) suppressMessages(errmsg(mp))   # Pool columns emit an info note
 chk("Pool expression referencing the level head counts passes",
-    is.na(perr(add_mix(mk(c("beta=[0,2]", "gamma=[0,1]")), "Pool_Level1", c("N1 + 0.5*total_pop")))))
+    is.na(perr(add_mix(mk(c("beta=[0,2]", "gamma=[0,1]")), "Pool_1", c("N1 + 0.5*total_pop")))))
 chk("undeclared symbol in a Pool expression is caught",
-    grepl("not a declared", perr(add_mix(mk(c("beta=[0,2]", "gamma=[0,1]")), "Pool_Level1", c("N1 + wat")))))
+    grepl("not a declared", perr(add_mix(mk(c("beta=[0,2]", "gamma=[0,1]")), "Pool_1", c("N1 + wat")))))
 chk("Pool without a matching level column is rejected",
     grepl("no matching level column", perr(add_mix(mk(c("beta=[0,2]", "gamma=[0,1]")), "Pool_Ghost", c("N1")))))
 chk("Pool and Mixing on the same level is rejected", {
-  m <- add_mix(mk(c("beta=[0,2]", "gamma=[0,1]")), "Pool_Level1", c("N1"))
-  m <- add_mix(m, "Mixing_Level1", c("1", "1"))
+  m <- add_mix(mk(c("beta=[0,2]", "gamma=[0,1]")), "Pool_1", c("N1"))
+  m <- add_mix(m, "Mixing_1", c("1", "1"))
   grepl("both a", perr(m)) })
 chk("a Pool column emits the divide-by-zero note", {
   msgs <- character(0)
   withCallingHandlers(
-    validate_modelParams(add_mix(mk(c("beta=[0,2]", "gamma=[0,1]")), "Pool_Level1", c("N1"))),
+    validate_modelParams(add_mix(mk(c("beta=[0,2]", "gamma=[0,1]")), "Pool_1", c("N1"))),
     message = function(m) { msgs <<- c(msgs, conditionMessage(m)); invokeRestart("muffleMessage") })
   any(grepl("floored at a small positive value", msgs)) })
 
 th_section("a parameter/function may not share a State name (state-slot rewrite)")
 chk("parameter named after a State is rejected",
     grepl("both as a State", errmsg(mk(c("X1=[0,1]", "gamma=[0,1]")))))   # X1 is a compartment name
-# The level is `_Level1`, so its head-count alias is N_Level1; a param may not take it.
+# The level is `Level_1`, so its head-count alias is N_1; a param may not take it.
 chk("parameter named after a level alias N_<level> is rejected",
-    grepl("head-count alias", errmsg(mk(c("N_Level1=[0,1]", "gamma=[0,1]")))))
+    grepl("head-count alias", errmsg(mk(c("N_1=[0,1]", "gamma=[0,1]")))))
 chk("a Function may reference the level alias N_<level>",
     is.na(errmsg({ m <- mk(c("beta=[0,2]", "gamma=[0,1]"))
-                   m$Functions[1] <- "frac<-N_Level1/total_pop"; m })))
+                   m$Functions[1] <- "frac<-N_1/total_pop"; m })))
 
 th_section("all shipped fixtures pass")
 for (nm in c("minimal", "medium", "SI", "SIS", "SIR", "SEIR", "SIR_priors", "SEIR_priors")) {

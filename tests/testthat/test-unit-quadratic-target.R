@@ -3,7 +3,7 @@ test_that("test-unit-quadratic-target", {
 # test-unit-quadratic-target.R   (pure R; no Julia)
 # The Quadratic<i> cross-compartment routing prefix *goto* accepts a compartment
 # INDEX (*2*) or a State NAME (*I*), resolved through .comp_index -- the same
-# name<->index registry the _Level and Linear/Quadratic columns already use.
+# name<->index registry the Level_ and Linear/Quadratic columns already use.
 # The generated ODE is identical either way; the validator accepts a valid name
 # and rejects an unknown name or an out-of-range index.
 # ============================================================

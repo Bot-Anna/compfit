@@ -10,7 +10,7 @@ th_load_pure(c("utils.R", "scenario.R", "numberOfComps.R", "validate.R",
                "statesAndParams.R", "generateExpressions.R", "compartmentalFunction.R"))
 
 pad <- function(x, n = 4) c(as.character(x), rep("", n - length(x)))
-mp  <- data.frame(`_Level1` = pad(c("1", "2")),
+mp  <- data.frame(`Level_1` = pad(c("1", "2")),
   Others = pad(c("startpoint=2000", "endpoint=2005", "partition=4")),
   States = pad(c("*X1=10", "*X2=5")), Functions = pad(character(0)),
   Parameters = pad("m=[0.01,1]"), Conditions = pad(character(0)),

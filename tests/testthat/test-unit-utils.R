@@ -78,7 +78,7 @@ chk_ok("'sigmoid'/'alpha' allowed", compfit:::.check_reserved_bayes_names(c("sig
 
 th_section("statesAndParams: distributional prior becomes a fitted param (not a function)")
 mp_np <- data.frame(
-  `_Level1` = c("1","2"), Others = c("startpoint=2000","endpoint=2005"),
+  `Level_1` = c("1","2"), Others = c("startpoint=2000","endpoint=2005"),
   States = c("*X1=990","*X2=10"), Functions = c("",""),
   Parameters = c("beta=Normal(0.5,0.2)[0,2]","gamma=[0,1]"), Conditions = c("",""),
   Linear1=c("0","0"), Quadratic1=c("0","*2*-beta"),

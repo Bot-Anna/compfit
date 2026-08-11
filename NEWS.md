@@ -1,5 +1,14 @@
 # compfit (development version)
 
+## Breaking changes
+
+* **Level columns are now `Level_<id>`, not `_`-prefixed.** A level (mixing
+  subpopulation) column must start with `Level_` (e.g. `Level_1`, `Level_LA`,
+  `Level_Age1`); the old bare-underscore form (`_Level1`, `_Age1`) is no longer
+  detected. The id after `Level_` names the level and drives its companions
+  (`N_<id>`, `Mixing_<id>`, `Pool_<id>`). Rename any `_<name>` level column to
+  `Level_<name>`.
+
 ## New features
 
 * **State names may be used directly in expressions.** Any `Linear`/`Quadratic`/
@@ -15,8 +24,8 @@
   column order. `N_<level>` is reserved (a parameter/function may not take it).
 
 * **`Mixing_<level>` columns** weight how each compartment enters a level's
-  transmission denominator. A companion to a `_<level>` column (e.g.
-  `Mixing_Level1` for `_Level1`), it holds one weight per compartment defining an
+  transmission denominator. A companion to a `Level_<id>` column (e.g.
+  `Mixing_1` for `Level_1`), it holds one weight per compartment defining an
   *effective* mixing pool `Nw = sum_k w_k X[k]` that normalises the second-order
   terms for that level, in place of the raw head count. A blank cell is the
   membership default (1 in-level, else 0), so an absent or all-blank column

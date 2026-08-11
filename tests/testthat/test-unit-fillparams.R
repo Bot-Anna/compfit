@@ -23,12 +23,12 @@ fit <- structure(list(method = "lbfgsb",
 mp <- data.frame(
   States     = c("X1=[0,100]"),
   Parameters = c("beta=[0,1]"),
-  `_Level1`  = c("1"),
+  `Level_1`  = c("1"),
   check.names = FALSE, stringsAsFactors = FALSE)
 filled <- fill_params(fit, mp)
 chk("state cell filled",  filled$States[1] == "*X1=10")
 chk("param cell filled",  filled$Parameters[1] == "*beta=0.5")
-chk("structural column untouched", filled$`_Level1`[1] == "1")
+chk("structural column untouched", filled$`Level_1`[1] == "1")
 chk("column count preserved", ncol(filled) == ncol(mp))
 
 th_section("write_filled_params + verify_filled round-trip (needs writexl+readxl)")

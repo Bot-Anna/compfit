@@ -191,7 +191,7 @@ load_scenario <- function(scenario_dir,
   #    text coefficients into NA -- which compartmentalFunction() then treats as
   #    0, silently DROPPING model terms (the intermittent "works for some,
   #    not others" bug). Reading as text preserves them; the only columns that
-  #    must be numeric are the `_Level*` compartment INDICES, which
+  #    must be numeric are the `Level_*` compartment INDICES, which
   #    numberOfComps() and compartmentalFunction() coerce explicitly.
   dataCombined <- read_data_file(combined_path, text_cols = TRUE)
   dataDummy    <- read_data_file(dummy_path)

@@ -336,7 +336,7 @@ parsePrior <- function(rhs) {
 
 # .comp_index: map a compartment reference -- a name from .compartments() OR a
 # 1-based integer index -- to its integer index. Vectorised; NA for anything
-# unrecognised. Lets _Level and Linear<>/Quadratic<> accept names or numbers.
+# unrecognised. Lets Level_ and Linear<>/Quadratic<> accept names or numbers.
 .comp_index <- function(x, comp_names) {
   x   <- trimws(as.character(x))
   n   <- length(comp_names)

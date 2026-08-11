@@ -60,10 +60,10 @@
 }
 
 # Fill a modelParams data frame: rewrite the States and Parameters columns,
-# leaving ALL other columns (the _Level* compartment columns, Others, Functions,
+# leaving ALL other columns (the Level_* compartment columns, Others, Functions,
 # Conditions, Linear1..n, Quadratic1..n, ...) exactly as-is so the filled sheet still
 # rebuilds the identical compartmental model. check.names = FALSE is essential:
-# the compartment columns are detected by a leading underscore (^_), which R's
+# the compartment columns are detected by a `Level_` prefix (^Level_), which R's
 # default name-mangling would destroy.
 #' Write fitted estimates back into a model sheet
 #'
@@ -137,7 +137,7 @@ write_filled_params <- function(fit, scenario_dir,
   if (ext %in% c("xlsx", "xls")) {
     # writexl preserves column order and names exactly (no name mangling) and
     # writes NA as an empty cell -- matching the blank-cell semantics that the
-    # Linearj / Quadraticj / _Level* columns rely on. Preferred over openxlsx for
+    # Linearj / Quadraticj / Level_* columns rely on. Preferred over openxlsx for
     # this fidelity.
     if (requireNamespace("writexl", quietly = TRUE)) {
       writexl::write_xlsx(filled, out_path)
@@ -184,7 +184,7 @@ verify_filled <- function(filled_path, modelParams) {
   # type numerically on one side and as text on the other.
   reread <- read_data_file(filled_path, text_cols = TRUE)
 
-  # 1. Same columns, same order (critical: ^_ Level cols, Quadratic numbering).
+  # 1. Same columns, same order (critical: Level_ cols, Quadratic numbering).
   if (!identical(names(reread), names(modelParams)))
     stop("Column names/order differ after round-trip:\n  original: ",
          paste(names(modelParams), collapse = ", "), "\n  reread:   ",
