@@ -2,6 +2,18 @@
 
 ## New features
 
+* **State names may be used directly in expressions.** Any `Linear`/`Quadratic`/
+  `Constant`/`Functions`/`Pool_`/`Mixing_` cell can now be written in terms of the
+  compartments — e.g. `Hinf <- tau*R_HA + C_HA + delta*D_HA` in `Functions`, or a
+  `Constant` inflow `0.02*R` — instead of positional `X[k]`. Each State name is
+  rewritten to its slot in the generated model on every backend (R, Julia, Stan).
+  A parameter/function may no longer share a State name (`validate_modelParams()`
+  rejects it), since a compartment name always resolves to its state.
+* **Level head counts are available by name.** Alongside the positional `N1..Nk`,
+  each level now emits an alias `N_<level>` (e.g. `_Age1` → `N_Age1`), so an
+  expression can refer to a stratum's population by name instead of tracking its
+  column order. `N_<level>` is reserved (a parameter/function may not take it).
+
 * **`Mixing_<level>` columns** weight how each compartment enters a level's
   transmission denominator. A companion to a `_<level>` column (e.g.
   `Mixing_Level1` for `_Level1`), it holds one weight per compartment defining an

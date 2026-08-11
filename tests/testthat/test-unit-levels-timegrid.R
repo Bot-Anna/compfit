@@ -91,6 +91,41 @@ chk("R floors the pool with max", {
   grepl("Nw1 = max((N1 + 0.3 * N2), 1e-08)", b, fixed = TRUE) })
 chk("transmission divides by the pool Nw1", grepl("/Nw1", mP$model$stan_code, fixed = TRUE))
 
+th_section("named level head-count aliases N_<level> (all backends)")
+mpA <- sc$modelParams
+mpA[["_Level1"]] <- NULL
+mpA <- add_col(mpA, "_LA", c("1", "2"))   # level 1 -> alias N_LA
+mpA <- add_col(mpA, "_HA", c("3"))        # level 2 -> alias N_HA
+mpA$Functions[2] <- "share <- N_LA/(N_LA + N_HA)"   # reference levels BY NAME
+mA <- chk_ok("model referencing N_<level> by name builds",
+             build_compartmental_model(mpA, sc$dataCombined, solver = solver_control(backend = "r")))
+chk("Stan emits the aliases and the by-name reference",
+    grepl("real N_LA = N1;", mA$model$stan_code, fixed = TRUE) &&
+    grepl("real N_HA = N2;", mA$model$stan_code, fixed = TRUE) &&
+    grepl("share=N_LA/(N_LA+N_HA)", mA$model$stan_code, fixed = TRUE))
+chk("Julia emits the aliases", grepl("N_LA = N1", mA$model$julia_code, fixed = TRUE))
+chk("R body emits the aliases", {
+  b <- paste(deparse(body(mA$model$compartmental_function)), collapse = "\n")
+  grepl("N_LA = N1", b, fixed = TRUE) && grepl("N_HA = N2", b, fixed = TRUE) })
+
+th_section("state names in Functions / Constant are rewritten to X[k] (all backends)")
+mpN <- sc$modelParams
+mpN$States   <- sub("X1", "S", mpN$States); mpN$States <- sub("X2", "I", mpN$States)
+mpN$States   <- sub("X3", "R", mpN$States)
+mpN$Functions[2] <- "prev <- I/(S+I+R)"                       # references states by name
+mpN$Constant     <- c("0", "0.02*R", "0", rep("", nrow(mpN) - 3))  # inflow into I ~ R
+mN <- chk_ok("model with state names in expressions builds",
+             build_compartmental_model(mpN, sc$dataCombined, solver = solver_control(backend = "r")))
+chk("Stan rewrites the Functions state refs",
+    grepl("real prev=X[2]/(X[1]+X[2]+X[3]);", mN$model$stan_code, fixed = TRUE))
+chk("Stan rewrites the Constant state ref (0.02*R -> 0.02*X[3])",
+    grepl("0.02*X[3]", mN$model$stan_code, fixed = TRUE))
+chk("Julia rewrites the same",
+    grepl("prev=X[2]/(X[1]+X[2]+X[3])", mN$model$julia_code, fixed = TRUE))
+chk("R model body rewrites the same", {
+  b <- paste(deparse(body(mN$model$compartmental_function)), collapse = "\n")
+  grepl("prev = X[2]/(X[1] + X[2] + X[3])", b, fixed = TRUE) })
+
 th_section(".time_grid warns on a non-integer year")
 warns <- function(mp) {
   w <- character(0)

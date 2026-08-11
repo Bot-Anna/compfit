@@ -107,6 +107,13 @@ compartmentalFunction <- function(modelParams,
   # still user-referenceable). Weights/expressions follow the coefficient grammar.
   .NW_FLOOR        <- "1e-8"
   level_names      <- if (length(compartment_cols)) sub("^_", "", compartment_cols) else character(0)
+  # Named aliases for the level head counts: alongside the positional N1..Nk, emit
+  # `N_<levelname> = N<i>` (e.g. `N_LA = N1`) so a coefficient / Function / Pool can
+  # refer to a stratum by name instead of tracking its column order. Only when the
+  # levels are explicitly named (a `_<name>` column exists).
+  n_alias_defs <- if (length(compartment_cols))
+                    paste0("N_", level_names, " = N", seq_along(level_names))
+                  else character(0)
   mixing_cols      <- if (length(level_names)) paste0("Mixing_", level_names) else character(0)
   pool_cols        <- if (length(level_names)) paste0("Pool_",   level_names) else character(0)
   has_mixing       <- mixing_cols %in% names(data_vals_coeffs)
@@ -127,7 +134,7 @@ compartmentalFunction <- function(modelParams,
     if (has_pool[L]) {                                   # Pool_<name>: a pool expression
       pv   <- as.character(data_vals_coeffs[[pool_cols[L]]])
       pv   <- pv[!is.na(pv) & nzchar(trimws(pv))]
-      expr <- gsub(" ", "", trimws(pv[1]))
+      expr <- .names_to_slots(gsub(" ", "", trimws(pv[1])), comp_names)
       rhs  <- paste0("max((", expr, "), ", .NW_FLOOR, ")")   # positive floor guards /0
     } else {                                             # Mixing_<name>: per-compartment weights
       wcol  <- as.character(data_vals_coeffs[[mixing_cols[L]]])[seq_len(number_of_comps)]
@@ -136,7 +143,7 @@ compartmentalFunction <- function(modelParams,
         w <- if (k <= length(wcol)) trimws(wcol[k]) else NA_character_
         if (is.na(w) || !nzchar(w))                     # blank -> membership default
           w <- if (k %in% level_compartments[[L]]) "1" else "0"
-        w <- gsub(" ", "", w)
+        w <- .names_to_slots(gsub(" ", "", w), comp_names)
         if (w == "0") next
         terms <- c(terms, if (w == "1") paste0("X[", k, "]")
                           else paste0("(", w, ")*X[", k, "]"))
@@ -230,11 +237,12 @@ compartmentalFunction <- function(modelParams,
       current_string <- ""
       
       # Loop which appends at each step "coefficient_j*Xj+". A coefficient is a
-      # number, a parameter name, or an expression of parameters/time; a
+      # number, a parameter name, or an expression of parameters/time/STATES; a
       # time-varying coefficient is written as a named `Functions` entry and
-      # referenced here by name.
+      # referenced here by name. State names in the coefficient are rewritten to
+      # their X[k] slot.
       for(j in 1:length(joined_vec[1,])){
-        help_string <- joined_vec[1,j]
+        help_string <- .names_to_slots(joined_vec[1,j], comp_names)
         extra_string <- paste(c(help_string,"*",
                                 "X[",joined_vec[2,j],"]+"), collapse="")
         current_string <- paste(c(current_string, extra_string), collapse="")
@@ -300,6 +308,9 @@ compartmentalFunction <- function(modelParams,
             goto_token <- sub("^\\*([^*]+)\\*.*$", "\\1", help_string)
             goes_to <- as.character(.comp_index(goto_token, comp_names))
             help_string <- sub("^\\*[^*]+\\*(.*)$", "\\1", help_string)
+            # State names in the coefficient -> X[k] (the goto target above is
+            # resolved by name separately, so it is left untouched).
+            help_string <- .names_to_slots(help_string, comp_names)
 
             # Same vs different mixing level decides the normalising denominator.
             # denom() yields Nw<level> when that level has a Mixing_<name> column
@@ -367,7 +378,7 @@ compartmentalFunction <- function(modelParams,
   for (i in seq_len(number_of_comps)) {
     val <- constant_col[i]
     if (val == "0") { vec_help_constant[i] <- ""; next }
-    vec_help_constant[i] <- paste0(val, "+")
+    vec_help_constant[i] <- paste0(.names_to_slots(val, comp_names), "+")
   }
 
   ## ---- Builds a combined vector ----
@@ -389,7 +400,15 @@ compartmentalFunction <- function(modelParams,
                                          !is.na(functions_vector)]
   functions_vector <- gsub(" ", "", functions_vector)
   functions_vector <- gsub("<-", "=", functions_vector, fixed = TRUE)
-  
+  # Rewrite STATE NAMES to X[k] in each entry's RHS (the LHS is the new variable's
+  # own name and is left as-is), so a Functions definition can be written in terms
+  # of the compartments, e.g. `Hinf = tau*R_HA + C_HA + delta*D_HA`.
+  functions_vector <- vapply(functions_vector, function(e) {
+    pos <- regexpr("=", e, fixed = TRUE)
+    if (pos < 1L) return(e)
+    paste0(substr(e, 1L, pos), .names_to_slots(substring(e, pos + 1L), comp_names))
+  }, character(1), USE.NAMES = FALSE)
+
   functions_expression <- ""
   
   if (length(functions_vector) != 0) {
@@ -436,7 +455,11 @@ compartmentalFunction <- function(modelParams,
                                collapse = "")
   }
   master_expression <- remove_trailing_plus(master_expression)
-  
+
+  # Named level head-count aliases (N_<level> = N<i>), right after the N block.
+  for (na in n_alias_defs)
+    master_expression <- paste(c(master_expression, "\n ", na), collapse = "")
+
   # Adds the expression so it's compatible with Julia
   master_expression <- paste(c(master_expression, "\n", sir_expression),
                              collapse = "")
@@ -491,6 +514,7 @@ compartmentalFunction <- function(modelParams,
     number_of_comps = number_of_comps,
     level_compartments = level_compartments,
     nw_defs = nw_defs,
+    n_alias_defs = n_alias_defs,
     cutoff = cutoff,
     startpoint = startpoint
     )
@@ -507,6 +531,7 @@ compartmentalFunction <- function(modelParams,
       number_of_comps = number_of_comps,
       level_compartments = level_compartments,
       nw_defs = nw_defs,
+      n_alias_defs = n_alias_defs,
       cutoff = cutoff,
       startpoint = startpoint
     ), error = function(e) NULL)
@@ -562,6 +587,7 @@ buildJuliaODEFunction <- function(sir_expression,
                                    number_of_comps,
                                    level_compartments,
                                    nw_defs = character(0),
+                                   n_alias_defs = character(0),
                                    cutoff,
                                    startpoint) {
 
@@ -684,6 +710,8 @@ buildJuliaODEFunction <- function(sir_expression,
   }
   all_N <- paste0("N", seq_along(level_compartments), collapse = "+")
   n_lines <- paste0(n_lines, "\n    total_pop = ", all_N)
+  # Named level head-count aliases (N_<level> = N<i>).
+  for (na in n_alias_defs) n_lines <- paste0(n_lines, "\n    ", na)
 
   ## ----------------------------------------------------------
   ## 3. sir_expression — parameter unpacking (already built by

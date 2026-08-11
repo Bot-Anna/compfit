@@ -181,14 +181,19 @@ The model sheet uses column groups:
 - **`Others`**: the time grid, with `startpoint`, `endpoint`, `partition`, and an
   optional `cutoff`. The axis is annual (integer years), and by convention the
   initial state sits at `startpoint - 1`.
-- **`Functions`** (optional): time-varying helpers, for example
-  `gamma_t<-gamma*(1+ramp*time)`.
+- **`Functions`** (optional): named helpers, for example a time-varying rate
+  `gamma_t<-gamma*(1+ramp*time)`. Expressions may reference **compartments by
+  name** (e.g. `prev<-I/(S+I+R)`), the level head counts `N<level>`/`total_pop`,
+  parameters, and `time`; compartment names are rewritten to their state slot.
+  The same holds for any `Linear`/`Quadratic`/`Constant`/`Pool_` coefficient (a
+  parameter/function may not share a compartment's name).
 - **`Conditions`** (optional): constraints turned into a fitting penalty, for
   example `beta>gamma`.
 - **`_Level<j>`** (optional): which compartments share a mixing population (age,
   sex, region). The name after `_` is up to you (`_Level1`, `_Age1`, and so on),
   and cells take a compartment number or name. Leave it out and all compartments
-  form a single population.
+  form a single population. Each level's head count is available in expressions as
+  `N<i>` (by position) and as `N_<name>` (by the level's name, e.g. `_Age1` → `N_Age1`).
 - **`Mixing_<level>`** (optional): a companion to a `_<level>` column, named
   `Mixing_` plus the level's name (`Mixing_Level1`, `Mixing_Age1`). It holds one
   weight per compartment defining that level's *effective* mixing pool -- the

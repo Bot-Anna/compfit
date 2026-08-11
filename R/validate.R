@@ -25,10 +25,12 @@
 #' \itemize{
 #'   \item fixed \code{States}/\code{Parameters} values and \code{Linear}/
 #'     \code{Quadratic}/\code{Constant}/\code{Functions}/\code{Conditions}/
-#'     \code{Mixing_<level>} expressions reference only declared symbols
-#'     (parameters, \code{_0} aliases, the declared states -- \code{X1..Xn} or
-#'     named, e.g. \code{S}/\code{I}/\code{R} --, functions, \code{time}), so a
-#'     typo like \code{*2*-bta} is caught;
+#'     \code{Mixing_<level>}/\code{Pool_<level>} expressions reference only
+#'     declared symbols (parameters, \code{_0} aliases, the declared states --
+#'     \code{X1..Xn} or named, e.g. \code{S}/\code{I}/\code{R}, which are rewritten
+#'     to their state slot --, functions, \code{time}, \code{N<level>}), so a typo
+#'     like \code{*2*-bta} is caught; a parameter/function may not share a State
+#'     name;
 #'   \item box priors \code{[lo,hi]} are two numbers with \code{lo < hi};
 #'   \item distribution priors have numeric arguments;
 #'   \item no parameter/state/function name collides with a Julia keyword or a
@@ -71,12 +73,15 @@ validate_modelParams <- function(modelParams) {
   param_names <- unique(sub("^\\*?\\s*([A-Za-z.][A-Za-z0-9_.]*)\\s*=.*", "\\1", P))
   Fn <- nz(modelParams$Functions)
   func_names <- unique(sub("^\\s*([A-Za-z.][A-Za-z0-9_.]*)\\s*<-.*", "\\1", Fn))
-  # Level head counts N1..Nk and total_pop are codegen quantities in scope for any
-  # coefficient / Pool_<level> expression, so allow them as referenceable symbols.
-  n_levels <- max(1L, length(cs$compartment_cols))
+  # Level head counts N1..Nk, their named aliases N_<level>, and total_pop are
+  # codegen quantities in scope for any coefficient / Pool_<level> expression, so
+  # allow them as referenceable symbols.
+  n_levels     <- max(1L, length(cs$compartment_cols))
+  n_alias_names <- if (length(cs$compartment_cols))
+                     paste0("N_", sub("^_", "", cs$compartment_cols)) else character(0)
   allowed <- unique(c(param_names, paste0(param_names, "_0"), state_names,
                       func_names, "time", "t", "N", "pi",
-                      paste0("N", seq_len(n_levels)), "total_pop"))
+                      paste0("N", seq_len(n_levels)), n_alias_names, "total_pop"))
 
   # Column groups: a missing/misspelled group (e.g. 'Prameters') otherwise reads
   # as empty and fails cryptically later. Warn on any unrecognised column; a
@@ -136,6 +141,25 @@ validate_modelParams <- function(modelParams) {
     add(paste0("name(s) %s clash with the auto-generated `_0` initial-value alias ",
                "of another declared quantity; rename them."),
         paste(sQuote(alias_clash), collapse = ", "))
+
+  # A parameter/function may not share a State (compartment) name: a compartment
+  # name is rewritten to its state slot X[k] in every coefficient/Functions/Pool
+  # expression, so such a token always resolves to the state -- a like-named
+  # parameter/function would be silently shadowed.
+  name_state_clash <- unique(intersect(c(param_names, func_names), state_names))
+  if (length(name_state_clash))
+    add(paste0("name(s) %s are used both as a State (compartment) and as a ",
+               "parameter/function; a compartment name resolves to its state in ",
+               "expressions, so rename the parameter/function."),
+        paste(sQuote(name_state_clash), collapse = ", "))
+
+  # A parameter/state/function may not take a generated level head-count alias
+  # name N_<level> -- it would be shadowed by (or shadow) that codegen variable.
+  alias_clash2 <- unique(intersect(nm_all, n_alias_names))
+  if (length(alias_clash2))
+    add(paste0("name(s) %s collide with the level head-count alias N_<level>; ",
+               "rename them."),
+        paste(sQuote(alias_clash2), collapse = ", "))
 
   is_num <- function(x) !is.na(suppressWarnings(as.numeric(x)))
 

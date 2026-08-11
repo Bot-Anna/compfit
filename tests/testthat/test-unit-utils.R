@@ -117,5 +117,20 @@ chk_equal("snap_to_step", snap_to_step(0,10,2.3,1), 2)
 chk("remove_trailing_plus", remove_trailing_plus("a+b+ ") == "a+b")
 chk("reduce_expression collapses signs", reduce_expression("a--b") == "a+b")
 
+th_section(".names_to_slots: state names -> X[k] in expressions")
+cn <- c("S", "I", "R_HA", "R")   # canonical States order -> S=X1, I=X2, R_HA=X3, R=X4
+chk("longest name wins (R_HA before R) and each maps to its slot",
+    .names_to_slots("tau*R_HA + delta*R + I - S", cn) == "tau*X[3] + delta*X[4] + X[2] - X[1]")
+chk("word boundary: 'I' not matched inside 'Infected'",
+    .names_to_slots("2*Infected", cn) == "2*Infected")
+chk("no state token -> unchanged",
+    .names_to_slots("beta*exp(-0.1*time)", cn) == "beta*exp(-0.1*time)")
+chk("case-sensitive: state 'C' not matched in base c()",
+    .names_to_slots("c(1,2)", c("C")) == "c(1,2)")
+chk("empty / NA / no-registry pass through",
+    .names_to_slots("", cn) == "" &&
+    is.na(.names_to_slots(NA_character_, cn)) &&
+    .names_to_slots("S+I", character(0)) == "S+I")
+
 th_summary("utils")
 })

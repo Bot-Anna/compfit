@@ -349,6 +349,24 @@ parsePrior <- function(rhs) {
   ifelse(is.na(by_name) & ok_num, by_num, by_name)
 }
 
+# .names_to_slots: rewrite user-written STATE NAMES to their X[k] slot inside a
+# coefficient / Functions / Pool expression, so a cell can be written in terms of
+# the compartments (e.g. `tau*R_HA + delta*D_HA`) instead of positional X[k]. The
+# ODE body only binds X[k] / parameters / N<level>, never the state names, so the
+# rewrite happens here (once) and every backend inherits it via the shared IR.
+# Longest name first so a short name that prefixes another (`R` vs `R_HA`) is not
+# matched inside it; word boundaries (\b, with perl) keep it from touching a name
+# embedded in a longer identifier. A parameter/function sharing a state's name is
+# rejected upstream by validate_modelParams(), so a matched token is always the
+# state. comp_names is the canonical States order; comp_names[k] maps to X[k].
+.names_to_slots <- function(expr, comp_names) {
+  if (length(expr) != 1L || is.na(expr) || !nzchar(expr) || !length(comp_names)) return(expr)
+  for (k in order(-nchar(comp_names)))
+    expr <- gsub(paste0("\\b\\Q", comp_names[k], "\\E\\b"),
+                 paste0("X[", k, "]"), expr, perl = TRUE)
+  expr
+}
+
 # .default_label: ensure a data frame (dataCombined / dataDummy) has a Label
 # column, filling any missing/blank entry from the row's Formula so labels are
 # always available for plots/reports. A frame with no Formula column is returned

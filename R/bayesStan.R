@@ -109,6 +109,7 @@ buildStanODEFunction <- function(sir_expression,
                                  number_of_comps,
                                  level_compartments,
                                  nw_defs = character(0),
+                                 n_alias_defs = character(0),
                                  cutoff,
                                  startpoint) {
   stmts <- character(0)
@@ -121,6 +122,11 @@ buildStanODEFunction <- function(sir_expression,
   }
   all_N <- paste0("N", seq_along(level_compartments), collapse = "+")
   stmts <- c(stmts, sprintf("    real total_pop = %s;", all_N))
+  # Named level head-count aliases (real N_<level> = N<i>;).
+  for (na in n_alias_defs) {
+    d <- .stan_decl_line(na)
+    if (!is.null(d)) stmts <- c(stmts, d)
+  }
 
   # 2. Parameter unpacking (sir_expression: `beta = p[1]` lines).
   stmts <- c(stmts, .stan_decl_block(sir_expression))

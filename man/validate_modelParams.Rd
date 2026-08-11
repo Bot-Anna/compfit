@@ -21,10 +21,12 @@ the column/cell and what is wrong. Checks:
 \itemize{
   \item fixed \code{States}/\code{Parameters} values and \code{Linear}/
     \code{Quadratic}/\code{Constant}/\code{Functions}/\code{Conditions}/
-    \code{Mixing_<level>} expressions reference only declared symbols
-    (parameters, \code{_0} aliases, the declared states -- \code{X1..Xn} or
-    named, e.g. \code{S}/\code{I}/\code{R} --, functions, \code{time}), so a
-    typo like \code{*2*-bta} is caught;
+    \code{Mixing_<level>}/\code{Pool_<level>} expressions reference only
+    declared symbols (parameters, \code{_0} aliases, the declared states --
+    \code{X1..Xn} or named, e.g. \code{S}/\code{I}/\code{R}, which are rewritten
+    to their state slot --, functions, \code{time}, \code{N<level>}), so a typo
+    like \code{*2*-bta} is caught; a parameter/function may not share a State
+    name;
   \item box priors \code{[lo,hi]} are two numbers with \code{lo < hi};
   \item distribution priors have numeric arguments;
   \item no parameter/state/function name collides with a Julia keyword or a

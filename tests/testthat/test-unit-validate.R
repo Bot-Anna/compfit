@@ -134,6 +134,16 @@ chk("a Pool column emits the divide-by-zero note", {
     message = function(m) { msgs <<- c(msgs, conditionMessage(m)); invokeRestart("muffleMessage") })
   any(grepl("floored at a small positive value", msgs)) })
 
+th_section("a parameter/function may not share a State name (state-slot rewrite)")
+chk("parameter named after a State is rejected",
+    grepl("both as a State", errmsg(mk(c("X1=[0,1]", "gamma=[0,1]")))))   # X1 is a compartment name
+# The level is `_Level1`, so its head-count alias is N_Level1; a param may not take it.
+chk("parameter named after a level alias N_<level> is rejected",
+    grepl("head-count alias", errmsg(mk(c("N_Level1=[0,1]", "gamma=[0,1]")))))
+chk("a Function may reference the level alias N_<level>",
+    is.na(errmsg({ m <- mk(c("beta=[0,2]", "gamma=[0,1]"))
+                   m$Functions[1] <- "frac<-N_Level1/total_pop"; m })))
+
 th_section("all shipped fixtures pass")
 for (nm in c("minimal", "medium", "SI", "SIS", "SIR", "SEIR", "SIR_priors", "SEIR_priors")) {
   dir <- fixture_dir(nm)
