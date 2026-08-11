@@ -63,16 +63,17 @@ chk("Julia keyword 'end' is a reserved name",
     grepl("reserved", errmsg(mk(c("beta=[0,2]", "gamma=[0,1]", "end=[0,1]")))))
 chk("codegen variable 't' is a reserved name",
     grepl("reserved", errmsg(mk(c("beta=[0,2]", "gamma=[0,1]", "t=[0,1]")))))
-# Codegen-generated variables/functions: level pops, sums, per-term helpers.
-for (nm in c("N1=[0,1]", "N2=[0,1]", "total_pop=[0,1]", "f12=[0,1]", "g23=[0,1]",
-             "cst1=[0,1]", "secOrd_1_2=[0,1]", "time=[0,1]"))
+# Codegen-generated variables: level pops, sums, term temporaries.
+for (nm in c("N1=[0,1]", "N2=[0,1]", "total_pop=[0,1]", "secOrd_1_2=[0,1]", "time=[0,1]"))
   chk(paste("collision name", sub("=.*", "", nm), "rejected"),
       grepl("reserved", errmsg(mk(c("beta=[0,2]", "gamma=[0,1]", nm)))))
 # But close look-alikes that are NOT generated must still pass.
 chk("N0 (fixed initial pop) is allowed",
     is.na(errmsg(mk(c("beta=[0,2]", "gamma=[0,1]", "*N0=1000")))))
-chk("single-digit f1 / g2 are allowed",
-    is.na(errmsg(mk(c("beta=[0,2]", "gamma=[0,1]", "f1=[0,1]", "g2=[0,1]")))))
+# The old inline-$ helper functions f<ij>/g<ij>/cst<i> are no longer generated
+# (the $-function feature was removed), so those names are free again.
+chk("former $-helper names f12 / g23 / cst1 are allowed",
+    is.na(errmsg(mk(c("beta=[0,2]", "gamma=[0,1]", "f12=[0,1]", "g23=[0,1]", "cst1=[0,1]")))))
 # A STATE named after a reserved word is now caught too (was a gap).
 chk("reserved word as a STATE name is caught",
     grepl("reserved", errmsg(mk(c("beta=[0,2]", "gamma=[0,1]"),
@@ -91,6 +92,14 @@ chk("unrecognised column warns", {
   withCallingHandlers(validate_modelParams(m),
     warning = function(x) { w <<- c(w, conditionMessage(x)); invokeRestart("muffleWarning") })
   any(grepl("unrecognised", w)) })
+
+th_section("removed inline $-functions are rejected with a migration hint")
+chk("$ in a Quadratic coefficient is rejected",
+    grepl("\\$.*removed|removed.*Functions", errmsg(mk(c("beta=[0,2]", "gamma=[0,1]"),
+                                                        q1 = c("0", "*2*$beta*exp(-0.1*time)")))))
+chk("$ in a Constant cell is rejected", {
+  m <- mk(c("beta=[0,2]", "gamma=[0,1]")); m$Constant <- c("$0.3*time", "0", rep("", nrow(m) - 2))
+  grepl("removed", errmsg(m)) })
 
 th_section("all shipped fixtures pass")
 for (nm in c("minimal", "medium", "SI", "SIS", "SIR", "SEIR", "SIR_priors", "SEIR_priors")) {

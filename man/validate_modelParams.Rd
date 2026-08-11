@@ -28,9 +28,9 @@ the column/cell and what is wrong. Checks:
   \item box priors \code{[lo,hi]} are two numbers with \code{lo < hi};
   \item distribution priors have numeric arguments;
   \item no parameter/state/function name collides with a Julia keyword or a
-    codegen variable/function (\code{t}/\code{p}/\code{X}/\code{du}/\code{dX}/
-    \code{parms}, \code{N1..}, \code{total_pop}, \code{f<ij>}, \code{g<ij>},
-    \code{cst<i>}, \code{secOrd_i_j}, or another quantity's \code{_0} alias);
+    codegen variable (\code{t}/\code{p}/\code{X}/\code{du}/\code{dX}/
+    \code{parms}, \code{N1..}, \code{total_pop}, \code{secOrd_i_j}, or another
+    quantity's \code{_0} alias);
   \item \code{Quadratic} cells are \code{*goto*coeff} with a target given as a
     compartment index (\code{1..n}) or a State name (e.g. \code{*I*});
   \item \code{Others} has numeric \code{startpoint}/\code{endpoint}/\code{partition}.

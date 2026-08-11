@@ -1,3 +1,16 @@
+# compfit (development version)
+
+## Breaking changes
+
+* **Inline `$`-functions have been removed.** A coefficient cell (in `Linear<j>`,
+  `Quadratic<j>`, or `Constant`) can no longer be a `$`-prefixed time-function
+  (e.g. `$0.3*exp(-0.1*time)`). Define the expression as a named `Functions` entry
+  and reference it by name instead -- the general, reusable mechanism that already
+  existed and works across every backend (the old `$` form only ever worked on the
+  R backend). `validate_modelParams()` flags any remaining `$` cell with a
+  migration hint. Consequently the codegen no longer generates the `f<ij>` /
+  `g<ij>` / `cst<i>` helper names, and those are no longer reserved.
+
 # compfit 0.1.0
 
 First release.

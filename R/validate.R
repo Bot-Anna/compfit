@@ -32,9 +32,9 @@
 #'   \item box priors \code{[lo,hi]} are two numbers with \code{lo < hi};
 #'   \item distribution priors have numeric arguments;
 #'   \item no parameter/state/function name collides with a Julia keyword or a
-#'     codegen variable/function (\code{t}/\code{p}/\code{X}/\code{du}/\code{dX}/
-#'     \code{parms}, \code{N1..}, \code{total_pop}, \code{f<ij>}, \code{g<ij>},
-#'     \code{cst<i>}, \code{secOrd_i_j}, or another quantity's \code{_0} alias);
+#'     codegen variable (\code{t}/\code{p}/\code{X}/\code{du}/\code{dX}/
+#'     \code{parms}, \code{N1..}, \code{total_pop}, \code{secOrd_i_j}, or another
+#'     quantity's \code{_0} alias);
 #'   \item \code{Quadratic} cells are \code{*goto*coeff} with a target given as a
 #'     compartment index (\code{1..n}) or a State name (e.g. \code{*I*});
 #'   \item \code{Others} has numeric \code{startpoint}/\code{endpoint}/\code{partition}.
@@ -98,24 +98,20 @@ validate_modelParams <- function(modelParams) {
   #   N1, N2, ...            level populations (N0 stays free -- it is a common
   #                          fixed initial-population parameter)
   #   total_pop              sum of level populations
-  #   f<ij> / g<ij>          first/second-order time-varying coefficient functions
-  #   cst<i>                 Constant-column time-functions
   #   secOrd_<i>_<j>         second-order term temporaries
   #   time                   rewritten to the codegen time variable `t`
   .codegen_reserved <- function(nm) {
     nm %in% c(.JULIA_RESERVED, "time", "total_pop") |
       grepl("^N[1-9][0-9]*$", nm) |
-      grepl("^[fg][0-9]{2,}$", nm) |
-      grepl("^cst[0-9]+$", nm) |
       grepl("^secOrd_[0-9]+_[0-9]+$", nm)
   }
   nm_all <- unique(c(param_names, state_names, func_names))
   reserved_hit <- unique(nm_all[.codegen_reserved(nm_all)])
   if (length(reserved_hit))
     add(paste0("reserved name(s) %s -- these collide with a Julia keyword or an ",
-               "internal codegen variable/function (t, p, X, du, dX, parms, ",
-               "N<level>, total_pop, f<ij>, g<ij>, cst<i>, secOrd_i_j) and would ",
-               "break the generated model; rename them."),
+               "internal codegen variable (t, p, X, du, dX, parms, N<level>, ",
+               "total_pop, secOrd_i_j) and would break the generated model; ",
+               "rename them."),
         paste(sQuote(reserved_hit), collapse = ", "))
 
   # A parameter/state whose name is ALSO another declared quantity's `_0`
@@ -135,6 +131,12 @@ validate_modelParams <- function(modelParams) {
   # whose free variables are all declared (or resolvable base-R objects).
   check_expr <- function(expr, where) {
     expr <- trimws(expr)
+    if (grepl("^\\$", expr)) {
+      add(paste0("%s: inline '$' time-functions have been removed -- define the ",
+                 "expression in the Functions column and reference it by name."),
+          where)
+      return(invisible())
+    }
     if (!nzchar(expr) || expr == "0" || is_num(expr)) return(invisible())
     vars <- tryCatch(all.vars(parse(text = expr)), error = function(e) NULL)
     if (is.null(vars)) {
@@ -184,12 +186,12 @@ validate_modelParams <- function(modelParams) {
   ## ---- Conditions ---- (comparators replaced so the expression parses)
   for (cnd in nz(modelParams$Conditions))
     check_expr(gsub("[<>=]+", "-", cnd), sprintf("Conditions cell '%s'", cnd))
-  ## ---- Constant ---- (one value per compartment; $-prefix = time-function)
+  ## ---- Constant ---- (one value per compartment: number/parameter/expression)
   if ("Constant" %in% names(modelParams))
     for (v in as.character(modelParams$Constant)[seq_len(n)]) {
       v <- trimws(v)
       if (is.na(v) || !nzchar(v) || v == "0") next
-      check_expr(sub("^\\$", "", v), sprintf("Constant cell '%s'", v))
+      check_expr(v, sprintf("Constant cell '%s'", v))
     }
 
   ## ---- Linear<j> / Quadratic<j> ---- (j = index, or LinearS.. by comp name)

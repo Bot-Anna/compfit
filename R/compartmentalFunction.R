@@ -171,26 +171,14 @@ compartmentalFunction <- function(modelParams,
       # Helper string
       current_string <- ""
       
-      # Loop which appends at each step "coefficient_j*Xj+"
-      # As some of the coefficient may be a function, we initialise all the
-      # coefficients as a function if the helpstring starts with a leading 
-      # asterisk
+      # Loop which appends at each step "coefficient_j*Xj+". A coefficient is a
+      # number, a parameter name, or an expression of parameters/time; a
+      # time-varying coefficient is written as a named `Functions` entry and
+      # referenced here by name.
       for(j in 1:length(joined_vec[1,])){
         help_string <- joined_vec[1,j]
-        if(has_leading_dollar_sign(help_string)){
-          help_string <- substring(help_string, 2)
-          # Build a function containing the coefficient as return expression
-          help_function <- function(x){}
-          help_function <- funins(help_function, parse(text=help_string),1)
-          assign(paste0("f",i,j), help_function)
-          # Build string which creates the expression in the equation
-          extra_string <- paste(c("f",i,j,"(time)*", 
-                                  "X[",joined_vec[2,j],"]+"), collapse="")
-        } else {
-          extra_string <- paste(c(help_string,"*", 
-                                  "X[",joined_vec[2,j],"]+"), collapse="")
-        }
-        
+        extra_string <- paste(c(help_string,"*",
+                                "X[",joined_vec[2,j],"]+"), collapse="")
         current_string <- paste(c(current_string, extra_string), collapse="")
       }
       vec_help_first_order <- append(vec_help_first_order, current_string)
@@ -254,80 +242,35 @@ compartmentalFunction <- function(modelParams,
             goto_token <- sub("^\\*([^*]+)\\*.*$", "\\1", help_string)
             goes_to <- as.character(.comp_index(goto_token, comp_names))
             help_string <- sub("^\\*[^*]+\\*(.*)$", "\\1", help_string)
-            
-            # The dollar sign indicates if we need to build a function first
-            # The functions, for now, are only allowed to have the argument "time"
-            if(has_leading_dollar_sign(help_string)){
-              help_string <- substring(help_string, 2)
-              # Build a function containing the coefficient as return expression
-              help_function <- function(x){}
-              help_function <- funins(help_function, parse(text=help_string),1)
-              assign(paste0("g",i,j), help_function)
-              # Build string which creates the expression in the equation
-              # Distinguish between both being from same level or both being
-              # from different levels 
-              if (current_level == other_current_level) {
-                extra_string <- paste(c("(g",i,j,"(time)*", 
-                                        "X[", j, "]*",
-                                        "X[", i, "])/",
-                                        "N", current_level), 
-                                      collapse="") # instead of i joined_vec[2,k]?
-                vec_help_expressions_second_order <- append(
-                  vec_help_expressions_second_order,
-                  paste(c("secOrd_", i, "_", j, "=", extra_string),
-                        collapse=""))
-                extra_string <- paste(c("secOrd_", i, "_", j, "+"), collapse="")
-              } else {
-                extra_string <- paste(c("(g",i,j,"(time)*", 
-                                        "X[", j, "]*",
-                                        "X[", i,"])/",
-                                        "(N", other_current_level, ")"), 
-                                      collapse="") # instead of i joined_vec[2,k]?
-                vec_help_expressions_second_order <- append(
-                  vec_help_expressions_second_order, 
-                  paste(c("secOrd_", i, "_", j, "=", extra_string 
-                          # "*dampingBoth"), 
-                  ),
-                  collapse=""))
-                extra_string <- paste(c("secOrd_", i, "_", j, "+"), collapse="")
-              }
-              
+
+            # Same vs different mixing level decides the normalising denominator:
+            # a same-level term divides by that level's head count N<level>, a
+            # cross-level term by the source (other) compartment's level. A
+            # time-varying coefficient is a named `Functions` entry referenced here.
+            if (current_level == other_current_level) {
+              extra_string <- paste(c("(", help_string, "*",
+                                      "X[", j, "]*",
+                                      "X[", i, "])/",
+                                      "N", current_level),
+                                    collapse="")
             } else {
-              if (current_level == other_current_level) {
-                extra_string <- paste(c("(", help_string, "*", 
-                                        "X[", j, "]*",
-                                        "X[", i, "])/",
-                                        "N", current_level), 
-                                      collapse="")
-                vec_help_expressions_second_order <- append(
-                  vec_help_expressions_second_order, 
-                  paste(c("secOrd_", i, "_", j, "=", extra_string
-                          # "*damping", current_level), 
-                  ),
-                  collapse=""))
-                extra_string <- paste(c("secOrd_", i, "_", j, "+"), collapse="")
-              } else {
-                extra_string <- paste(c("(", help_string, "*", 
-                                        "X[", j, "]*",
-                                        "X[", i,"])/",
-                                        "(N", other_current_level, ")"), 
-                                      collapse="")
-                vec_help_expressions_second_order <- append(
-                  vec_help_expressions_second_order, 
-                  paste(c("secOrd_", i, "_", j, "=", extra_string
-                          # "*dampingBoth"), 
-                  ),
-                  collapse=""))
-                extra_string <- paste(c("secOrd_", i, "_", j, "+"), collapse="")
-              }
-              if(is.na(add_to_string[goes_to])){
-                current_expr <- ""
-              } else {
-                current_expr <- add_to_string[goes_to]
-              }
-              updated_expr <- paste(current_expr, paste0("-", extra_string), sep = "")
-              add_to_string[goes_to] <- updated_expr
+              extra_string <- paste(c("(", help_string, "*",
+                                      "X[", j, "]*",
+                                      "X[", i,"])/",
+                                      "(N", other_current_level, ")"),
+                                    collapse="")
             }
+            vec_help_expressions_second_order <- append(
+              vec_help_expressions_second_order,
+              paste(c("secOrd_", i, "_", j, "=", extra_string), collapse=""))
+            extra_string <- paste(c("secOrd_", i, "_", j, "+"), collapse="")
+            if(is.na(add_to_string[goes_to])){
+              current_expr <- ""
+            } else {
+              current_expr <- add_to_string[goes_to]
+            }
+            updated_expr <- paste(current_expr, paste0("-", extra_string), sep = "")
+            add_to_string[goes_to] <- updated_expr
             goes_to <- ""
             current_string <- paste(c(current_string, extra_string), collapse="")
           }
@@ -353,10 +296,9 @@ compartmentalFunction <- function(modelParams,
   # to dX[i] with NO state multiplier -- e.g. a constant inflow / birth /
   # immigration rate, which cannot be expressed as a Linear `*X[j]` or a
   # Quadratic `*X[i]*X[j]` term. Each cell follows the same grammar as a
-  # Linear<j> coefficient: a number, a parameter name, an expression of
-  # parameters, or a $-prefixed time-function. A blank/missing cell (or an
-  # absent column) means 0. Assigned into this function's environment (like the
-  # f/g coefficient functions) so the R model closes over it; folded into
+  # Linear<j> coefficient: a number, a parameter name, or an expression of
+  # parameters (a time-varying constant is a named `Functions` entry referenced
+  # here). A blank/missing cell (or an absent column) means 0. Folded into
   # vec_main below so every backend (R, Julia, Stan) picks it up.
   constant_col <- if ("Constant" %in% names(data_vals_coeffs))
                     as.character(data_vals_coeffs[["Constant"]])[seq_len(number_of_comps)]
@@ -367,14 +309,7 @@ compartmentalFunction <- function(modelParams,
   for (i in seq_len(number_of_comps)) {
     val <- constant_col[i]
     if (val == "0") { vec_help_constant[i] <- ""; next }
-    if (has_leading_dollar_sign(val)) {
-      help_function <- function(x){}
-      help_function <- funins(help_function, parse(text = substring(val, 2)), 1)
-      assign(paste0("cst", i), help_function)
-      vec_help_constant[i] <- paste0("cst", i, "(time)+")
-    } else {
-      vec_help_constant[i] <- paste0(val, "+")
-    }
+    vec_help_constant[i] <- paste0(val, "+")
   }
 
   ## ---- Builds a combined vector ----

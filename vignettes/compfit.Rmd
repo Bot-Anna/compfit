@@ -174,9 +174,10 @@ The model sheet uses column groups:
   rate, one value per compartment (row `i` feeds `dX[i]`). Use it for an inflow
   that does not depend on any state, such as a constant birth or immigration rate,
   which cannot be written as a `Linear` (`*X[j]`) or `Quadratic` (`*X[i]*X[j]`)
-  term. A cell may be a number, a parameter name, an expression of parameters, or a
-  `$`-prefixed time-function (`$1000*exp(-0.1*time)`) -- the same grammar as a
-  `Linear` coefficient, minus the `*X[j]`. A blank cell or an absent column is zero.
+  term. A cell may be a number, a parameter name, or an expression of parameters --
+  the same grammar as a `Linear` coefficient, minus the `*X[j]`; for a time-varying
+  value, define it in `Functions` and reference it here by name. A blank cell or an
+  absent column is zero.
 - **`Others`**: the time grid, with `startpoint`, `endpoint`, `partition`, and an
   optional `cutoff`. The axis is annual (integer years), and by convention the
   initial state sits at `startpoint - 1`.

@@ -125,11 +125,6 @@ has_leading_asterisk <- function(text) {
   substr(text, 1, 1) == "*"
 }
 
-# Leading dollar sign: indicates the value is a parameter to be fitted.
-has_leading_dollar_sign <- function(text) {
-  substr(text, 1, 1) == "$"
-}
-
 # A data stream is "cumulative" iff its formula is wrapped in cumulative(...).
 # Used by BOTH the loss (to difference the model output to annual increments
 # for FITTING) and .prepare_data (to difference the data the same way), so they
