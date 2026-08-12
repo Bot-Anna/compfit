@@ -11,6 +11,11 @@
 
 ## New features
 
+* **State initial-value expressions may reference parameters by their plain name.**
+  A parameter-dependent initial state can now be written `*S=Pi*Ntot` instead of
+  requiring the `_0` alias form `*S=Pi_0*Ntot_0`; each declared name is rewritten to
+  its `_0` alias internally, so both initial-state code paths resolve it. Existing
+  `_0`-style sheets are unaffected.
 * **Held-out initial-year data column.** `dataCombined` may now include a column
   named `startpoint - 1` (the initial-condition year, which is not a fitted
   snapshot). It is excluded from the fit but kept for plotting: `plot_fit()` draws

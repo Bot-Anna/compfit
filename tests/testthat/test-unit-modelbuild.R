@@ -44,5 +44,20 @@ sap_unnamed <- list(
 )
 chk_error("unnamed bounds rejected", .bounds(sap_unnamed))
 
+th_section("statesAndParams: bare names in a State expr -> their _0 alias")
+mpb <- data.frame(
+  States     = c("*S=frac*Ntot", "*I=(1-frac)*Ntot", "*R=0"),
+  Parameters = c("frac=[0,1]", "*Ntot=1000", "beta=[0,1]"),
+  check.names = FALSE, stringsAsFactors = FALSE)
+sapb <- statesAndParams(mpb)
+chk("bare params rewritten to _0 in the fixed State expr",
+    sapb$states_fixed[["S"]] == "frac_0*Ntot_0")
+chk("second State expr rewritten too",
+    sapb$states_fixed[["I"]] == "(1-frac_0)*Ntot_0")
+# Already-_0 expressions are untouched (no double-suffix).
+mpc <- mpb; mpc$States <- c("*S=frac_0*Ntot_0", "*I=(1-frac_0)*Ntot_0", "*R=0")
+chk("existing _0 expressions are a no-op (not doubled)",
+    statesAndParams(mpc)$states_fixed[["S"]] == "frac_0*Ntot_0")
+
 th_summary("modelbuild")
 })

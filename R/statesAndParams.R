@@ -72,6 +72,25 @@ statesAndParams <- function(modelParams) {
   S <- .parse_entry_group(modelParams$States)
   P <- .parse_entry_group(modelParams$Parameters)
 
+  # A State initial-value expression is evaluated in a scope that binds each
+  # quantity by its `_0` alias (its value at t=0) -- both as the `<name>_0`
+  # assignments in states_params_expression and as `parms[["<name>_0"]]` in the
+  # list_states_functions closures. So a reference to a parameter/state must be its
+  # `_0` form. Users routinely write the plain name (`Pi_CH*S_totCH`); rewrite each
+  # declared name here to its `_0` alias so both paths resolve. A no-op for entries
+  # already written with `_0` (a `\b`-bounded name never matches inside `name_0`).
+  .alias_names <- unique(c(names(P$fixed), P$without_names, P$with_names,
+                           names(P$functions), comp_names))
+  .alias_names <- .alias_names[nzchar(.alias_names)]
+  .to_init <- function(expr) {
+    if (is.na(expr) || !nzchar(expr) || !length(.alias_names)) return(expr)
+    for (nm in .alias_names[order(-nchar(.alias_names))])
+      expr <- gsub(paste0("\\b\\Q", nm, "\\E\\b"), paste0(nm, "_0"), expr, perl = TRUE)
+    expr
+  }
+  if (length(S$fixed))     S$fixed     <- vapply(S$fixed,     .to_init, character(1))
+  if (length(S$functions)) S$functions <- vapply(S$functions, .to_init, character(1))
+
   ## ---- States ----
   states_fixed_final <- S$fixed
   non_numeric_fixed  <- S$fixed_nonnumeric
