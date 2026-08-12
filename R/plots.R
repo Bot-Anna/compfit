@@ -627,6 +627,23 @@ plot_fit <- function(fit, bands = TRUE,
       pal = pal, base_size = base_size)
   }
   
+  # Held-out (unfitted) data: e.g. the initial-condition year (startpoint - 1) kept
+  # in dataCombined for context. Drawn as an OPEN marker so it reads as "shown, not
+  # fitted", one year to the left of the first fitted point.
+  ho <- fit$data$heldout
+  if (!is.null(ho)) {
+    for (i in seq_along(streams)) {
+      st <- streams[i]; yv <- ho$value[i]
+      if (is.finite(yv) && st %in% names(plots))
+        plots[[st]] <- plots[[st]] +
+          ggplot2::geom_point(
+            data = data.frame(date = ho$date, y = yv),
+            ggplot2::aes(x = date, y = y),
+            shape = 21, colour = pal$data, fill = "white",
+            size = 2.3, stroke = 0.8, na.rm = TRUE)
+    }
+  }
+
   # Dummy (display-only) series: model trajectory + its uncertainty. Dummies have
   # no likelihood, so they get the TRAJECTORY (mean) band -- prefer the inner mean
   # band ("both"), else the primary band list -- plus spaghetti when chosen.

@@ -97,5 +97,15 @@ th_section("column-count vs horizon guard")
 tg_bad <- list(startpoint = 2013, endpoint = 2016)   # expects 4 cols, sheet has 3
 chk_error("mismatched horizon errors", .prepare_data(dc, tg_bad))
 
+th_section("held-out startpoint-1 column: peeled from the fit, kept for plotting")
+dcH <- dc; dcH[["2012"]] <- c("7", "", "3")          # startpoint-1 = 2012; stream 2 blank
+datH <- .prepare_data(dcH, tg)
+chk("still 3 fitted years (the 2012 column was peeled, guard passes)", ncol(datH$obs_mask) == 3)
+chk("held-out data stashed", !is.null(datH$heldout))
+chk("held-out date is the startpoint-1 year-end", datH$heldout$date == as.Date("2012-12-31"))
+chk_equal("held-out value for stream 1 (observed 7)", datH$heldout$value[1], 7)
+chk("held-out value is NA where the cell is blank (stream 2)", is.na(datH$heldout$value[2]))
+chk("no held-out column -> heldout is NULL", is.null(.prepare_data(dc, tg)$heldout))
+
 th_summary("prepare-data")
 })

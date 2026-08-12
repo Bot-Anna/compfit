@@ -180,7 +180,10 @@ The model sheet uses column groups:
   absent column is zero.
 - **`Others`**: the time grid, with `startpoint`, `endpoint`, `partition`, and an
   optional `cutoff`. The axis is annual (integer years), and by convention the
-  initial state sits at `startpoint - 1`.
+  initial state sits at `startpoint - 1`. `dataCombined` may carry a column for
+  that initial year (`startpoint - 1`); it is not fitted (t = 0 is the given
+  initial state, not a snapshot) but is drawn on `plot_fit()` as an open marker for
+  context.
 - **`Functions`** (optional): named helpers, for example a time-varying rate
   `gamma_t<-gamma*(1+ramp*time)`. Expressions may reference **compartments by
   name** (e.g. `prev<-I/(S+I+R)`), the level head counts `N<level>`/`total_pop`,

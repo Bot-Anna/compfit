@@ -377,6 +377,30 @@ bayes_control <- function(sampler    = "NUTS(0.65)",
   }
   n_str    <- nrow(data_combined)
   meta_lab <- c("Label", "Formula", "Likelihood", "Weight", "Average")
+
+  # Held-out initial-year column (optional): a data column named `startpoint - 1`
+  # (the initial-condition year) is NOT fitted -- t = 0 is the given initial state,
+  # not a snapshot -- but its observed values are kept so plot_fit() can show them
+  # as context, drawn distinctly from the fitted points. Peeled off here, BEFORE the
+  # column-count guard and the data matrices, so the entire fit path is unchanged.
+  heldout <- NULL
+  ho_name <- as.character(tg$startpoint - 1L)
+  if (ho_name %in% setdiff(names(data_combined), meta_lab)) {
+    ho_y <- vapply(as.character(data_combined[[ho_name]]), function(cell) {
+      o <- tryCatch(parse_data_cell(cell), error = function(e) NULL)
+      if (is.null(o)) return(NA_real_)
+      switch(o$kind,
+             observed = o$value,
+             interval = (o$limit + o$upper) / 2,   # plot at the interval midpoint
+             censored = o$limit,                   # plot at the bound
+             NA_real_)
+    }, numeric(1), USE.NAMES = FALSE)
+    heldout <- list(date  = as.Date(sprintf("%d-12-31", tg$startpoint - 1L)),
+                    value = ho_y,                              # per stream (row order)
+                    formula = as.character(data_combined$Formula))
+    data_combined[[ho_name]] <- NULL                          # exclude from the fit
+  }
+
   val_cols <- setdiff(names(data_combined), meta_lab)
 
   # Weight: optional per-stream importance multiplier. If the column is absent,
@@ -593,7 +617,8 @@ bayes_control <- function(sampler    = "NUTS(0.65)",
     average_matrix     = average_matrix,
     names_data_points  = names_data_points,
     likelihood_raw     = likelihood_raw,
-    cumulative_cols    = cumulative_cols     # indices of streams that were differenced
+    cumulative_cols    = cumulative_cols,    # indices of streams that were differenced
+    heldout            = heldout             # optional startpoint-1 column: plotted, not fitted
   )
 }
 

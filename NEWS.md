@@ -11,6 +11,12 @@
 
 ## New features
 
+* **Held-out initial-year data column.** `dataCombined` may now include a column
+  named `startpoint - 1` (the initial-condition year, which is not a fitted
+  snapshot). It is excluded from the fit but kept for plotting: `plot_fit()` draws
+  its observed values as open markers, one year left of the first fitted point, so
+  a pre-window data point can be shown for context without entering the likelihood.
+  Absent such a column, nothing changes.
 * **State names may be used directly in expressions.** Any `Linear`/`Quadratic`/
   `Constant`/`Functions`/`Pool_`/`Mixing_` cell can now be written in terms of the
   compartments — e.g. `Hinf <- tau*R_HA + C_HA + delta*D_HA` in `Functions`, or a
