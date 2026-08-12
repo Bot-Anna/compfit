@@ -367,10 +367,11 @@ bayes_control <- function(sampler    = "NUTS(0.65)",
   as_numeric_col <- function(x, col_name) {
     if (is.numeric(x)) return(x)
     chr  <- trimws(as.character(x))
-    # Literal "NA" / "N/A" markers (a common CSV / Excel round-trip of a blank
-    # cell) count as blank, not as bad non-numeric text -- so Weight defaults to 1
-    # and Average to its auto scale, without a spurious coercion warning.
-    chr[grepl("^(NA|N/A)$", chr, ignore.case = TRUE)] <- ""
+    # A missing cell -- actual NA, or a literal "NA"/"N/A" marker (a common CSV /
+    # Excel round-trip of a blank) -- counts as blank, not bad non-numeric text, so
+    # Weight defaults to 1 and Average to its auto scale without a coercion warning.
+    # (NB: nzchar(NA) is TRUE, so actual NA must be blanked explicitly here.)
+    chr[is.na(chr) | grepl("^(NA|N/A)$", chr, ignore.case = TRUE)] <- ""
     num  <- suppressWarnings(as.numeric(chr))
     bad  <- which(is.na(num) & nzchar(chr))   # non-blank that failed to parse
     if (length(bad))
@@ -448,10 +449,14 @@ bayes_control <- function(sampler    = "NUTS(0.65)",
     av <- as_numeric_col(data_combined$Average, "Average")
     av_blank <- which(is.na(av))
     if (length(av_blank)) {
-      warning(sprintf("Average is blank in row%s %s of dataCombined; using the auto-computed 1 / mean scale there.",
-                      if (length(av_blank) > 1L) "s" else "",
-                      paste(av_blank, collapse = ", ")),
-              call. = FALSE)
+      # A fully-blank Average column just means "auto-scale everything" (identical
+      # to omitting the column), so it is silent. Only a PARTIALLY-filled column --
+      # some set, some blank, which usually signals a forgotten cell -- warns.
+      if (length(av_blank) < n_str)
+        warning(sprintf("Average is blank in row%s %s of dataCombined; using the auto-computed 1 / mean scale there.",
+                        if (length(av_blank) > 1L) "s" else "",
+                        paste(av_blank, collapse = ", ")),
+                call. = FALSE)
       av[av_blank] <- vapply(av_blank, auto_avg, numeric(1))
     }
   } else {

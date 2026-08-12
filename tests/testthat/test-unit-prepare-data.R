@@ -77,13 +77,22 @@ d5 <- withCallingHandlers(.prepare_data(dc5, tg),
 chk("warning emitted for blank Average cell", awarned)
 chk("blank Average not zeroed (auto-computed instead)", d5$average_matrix[1, 1] != 0)
 
-th_section("literal 'NA' in Average counts as blank (no coercion warning)")
-dc6 <- dc; dc6$Average <- c("NA", "N/A", "1")     # NA markers, not bad text
-naw  <- character(0)
-d6 <- withCallingHandlers(.prepare_data(dc6, tg),
-                          warning = function(w) { naw <<- c(naw, conditionMessage(w)); invokeRestart("muffleWarning") })
-chk("no 'non-numeric text coerced' warning for NA/N/A", !any(grepl("non-numeric text", naw)))
-chk("NA-marked Average auto-computed (not zeroed)", d6$average_matrix[1, 1] != 0)
+th_section("NA (actual or literal) in Average counts as blank (no coercion warning)")
+grab_warn <- function(df) { w <- character(0)
+  withCallingHandlers(.prepare_data(df, tg),
+    warning = function(x) { w <<- c(w, conditionMessage(x)); invokeRestart("muffleWarning") })
+  w }
+dc6 <- dc; dc6$Average <- c(NA, "N/A", "1")       # actual NA, literal N/A, a value
+naw <- grab_warn(dc6)
+chk("no 'non-numeric text coerced' warning for NA / N/A", !any(grepl("non-numeric text", naw)))
+d6 <- suppressWarnings(.prepare_data(dc6, tg))
+chk("NA/N/A Average auto-computed (not zeroed)", d6$average_matrix[1, 1] != 0)
+
+th_section("a fully-blank Average column is silent (auto-scale everything)")
+dc7 <- dc; dc7$Average <- rep(NA_character_, nrow(dc7))
+w7 <- grab_warn(dc7)
+chk("no Average warning at all when the whole column is blank",
+    !any(grepl("Average", w7)))
 
 th_section("Weight/Average are optional (auto-computed when absent)")
 dc3 <- dc; dc3$Weight <- NULL; dc3$Average <- NULL
