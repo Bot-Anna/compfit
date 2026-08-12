@@ -367,6 +367,10 @@ bayes_control <- function(sampler    = "NUTS(0.65)",
   as_numeric_col <- function(x, col_name) {
     if (is.numeric(x)) return(x)
     chr  <- trimws(as.character(x))
+    # Literal "NA" / "N/A" markers (a common CSV / Excel round-trip of a blank
+    # cell) count as blank, not as bad non-numeric text -- so Weight defaults to 1
+    # and Average to its auto scale, without a spurious coercion warning.
+    chr[grepl("^(NA|N/A)$", chr, ignore.case = TRUE)] <- ""
     num  <- suppressWarnings(as.numeric(chr))
     bad  <- which(is.na(num) & nzchar(chr))   # non-blank that failed to parse
     if (length(bad))
