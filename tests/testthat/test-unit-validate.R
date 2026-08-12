@@ -154,6 +154,9 @@ chk("parameter named after a State is rejected",
 # The level is `Level_1`, so its head-count alias is N_1; a param may not take it.
 chk("parameter named after a level alias N_<level> is rejected",
     grepl("head-count alias", errmsg(mk(c("N_1=[0,1]", "gamma=[0,1]")))))
+chk("a Function may reference the time-grid constants startpoint / cutoff",
+    is.na(errmsg({ m <- mk(c("beta=[0,2]", "gamma=[0,1]"))
+                   m$Functions[1] <- "yr<-if_else(time+startpoint<2015, 0, cutoff)"; m })))
 chk("a Function may reference the level alias N_<level>",
     is.na(errmsg({ m <- mk(c("beta=[0,2]", "gamma=[0,1]"))
                    m$Functions[1] <- "frac<-N_1/total_pop"; m })))

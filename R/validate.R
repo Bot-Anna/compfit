@@ -79,12 +79,14 @@ validate_modelParams <- function(modelParams) {
   func_names <- unique(sub("^\\s*([A-Za-z.][A-Za-z0-9_.]*)\\s*<-.*", "\\1", Fn))
   # Level head counts N1..Nk, their named aliases N_<level>, and total_pop are
   # codegen quantities in scope for any coefficient / Pool_<level> expression, so
-  # allow them as referenceable symbols.
+  # allow them as referenceable symbols. `startpoint`/`cutoff` are the time-grid
+  # constants the generator injects as literals (Julia/Stan) / closes over (R), so
+  # an expression may use them too -- e.g. a calendar-year step `time+startpoint`.
   n_levels     <- max(1L, length(cs$compartment_cols))
   n_alias_names <- if (length(cs$compartment_cols))
                      paste0("N_", sub("^Level_", "", cs$compartment_cols, ignore.case = TRUE)) else character(0)
   allowed <- unique(c(param_names, paste0(param_names, "_0"), state_names,
-                      func_names, "time", "t", "N", "pi",
+                      func_names, "time", "t", "N", "pi", "startpoint", "cutoff",
                       paste0("N", seq_len(n_levels)), n_alias_names, "total_pop"))
 
   # Column groups: a missing/misspelled group (e.g. 'Prameters') otherwise reads
