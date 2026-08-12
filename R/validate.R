@@ -245,8 +245,9 @@ validate_modelParams <- function(modelParams) {
   ## ---- Functions ----
   for (f in Fn) check_expr(sub("^[^<]*<-", "", f), sprintf("Functions cell '%s'", f))
   ## ---- Conditions ---- (comparators replaced so the expression parses)
-  for (cnd in nz(modelParams$Conditions))
-    check_expr(gsub("[<>=]+", "-", cnd), sprintf("Conditions cell '%s'", cnd))
+  if ("Conditions" %in% names(modelParams))
+    for (cnd in nz(modelParams$Conditions))
+      check_expr(gsub("[<>=]+", "-", cnd), sprintf("Conditions cell '%s'", cnd))
   ## ---- Constant ---- (one value per compartment: number/parameter/expression)
   if ("Constant" %in% names(modelParams))
     for (v in as.character(modelParams$Constant)[seq_len(n)]) {

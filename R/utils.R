@@ -16,7 +16,8 @@
 # to the log-posterior. Comparators: >, >=, <, <=.
 .COND_PENALTY <- 1000
 .parse_conditions <- function(modelParams) {
-  cv <- as.character(modelParams$Conditions)
+  # No Conditions column -> no constraints (and no "unknown column" warning).
+  cv <- if ("Conditions" %in% names(modelParams)) as.character(modelParams$Conditions) else character(0)
   cv <- gsub(" ", "", cv[!is.na(cv) & trimws(cv) != ""])
   out <- character(0)
   for (cnd in cv) {

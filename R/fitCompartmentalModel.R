@@ -232,7 +232,7 @@ bayes_control <- function(sampler    = "NUTS(0.65)",
     params_fitted    = sap$params_fitted,
     params_fixed     = sap$params_fixed,
     params_functions = sap$params_functions,
-    conditions       = modelParams$Conditions,
+    conditions       = if ("Conditions" %in% names(modelParams)) modelParams$Conditions else NULL,
     comp_names       = compartment_structure$comp_names
   )
 
