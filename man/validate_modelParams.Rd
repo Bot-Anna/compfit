@@ -33,6 +33,10 @@ the column/cell and what is wrong. Checks:
     codegen variable (\code{t}/\code{p}/\code{X}/\code{du}/\code{dX}/
     \code{parms}, \code{N1..}, \code{Nw1..}, \code{total_pop},
     \code{secOrd_i_j}, or another quantity's \code{_0} alias);
+  \item every declared name (Parameters/Functions/States) is a legal identifier
+    -- letters, digits, \code{_}, \code{.} -- so operator characters (\code{^},
+    \code{()}, \code{,}, \code{-}, \code{/}, ...) that would be parsed as
+    operators rather than a name are rejected;
   \item \code{Quadratic} cells are \code{*goto*coeff} with a target given as a
     compartment index (\code{1..n}) or a State name (e.g. \code{*I*});
   \item each \code{Mixing_<level>} / \code{Pool_<level>} column has a matching

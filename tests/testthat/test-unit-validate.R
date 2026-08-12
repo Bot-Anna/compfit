@@ -158,6 +158,28 @@ chk("a Function may reference the level alias N_<level>",
     is.na(errmsg({ m <- mk(c("beta=[0,2]", "gamma=[0,1]"))
                    m$Functions[1] <- "frac<-N_1/total_pop"; m })))
 
+th_section("operator characters in a name are rejected (legal: letters/digits/_)")
+# Names must be legal identifiers on EVERY backend; operator characters are parsed
+# as operators, never as part of a name, so `f^R` reads as `f ^ R`. (Learned the
+# hard way aligning the two-country HIV model: `f^R_CH`, `Phiw_(H,CH)`, etc.)
+for (bad in c("f^R", "Phiw_(H,CH)", "p_H,H", "beta-x", "rate/yr", "a b")) {
+  msg <- errmsg(mk(c(paste0(bad, "=[0,1]"), "beta=[0,1]", "gamma=[0,1]")))
+  chk(paste("illegal name", sQuote(bad), "rejected"),
+      grepl("not valid names|parsed as operators", msg))
+}
+chk("a legal underscore name (f_R_CH, like the fixed HIV model) is accepted",
+    is.na(errmsg(mk(c("f_R_CH=[0,1]", "beta=[0,1]", "gamma=[0,1]")))))
+# The superscript-style names the HIV sheet uses are fine once written with '_'.
+chk("underscore superscript names (S_HighCH_nP style) are accepted",
+    is.na(errmsg(mk(c("beta=[0,2]", "gamma=[0,1]"),
+                    states = c("*S_HighCH_nP=990", "*S_HighCH_P=10")))))
+# An operator character used inside an EXPRESSION (not a declaration) is caught too,
+# via the existing unknown-symbol check (`beta^R_CH` -> free var `R_CH`).
+chk("a caret inside a coefficient expression is caught", {
+  m <- mk(c("beta=[0,2]", "gamma=[0,1]"))
+  m$Linear1 <- c("beta^R_CH", "0", rep("", nrow(m) - 2))
+  !is.na(errmsg(m)) })
+
 th_section("all shipped fixtures pass")
 for (nm in c("minimal", "medium", "SI", "SIS", "SIR", "SEIR", "SIR_priors", "SEIR_priors")) {
   dir <- fixture_dir(nm)

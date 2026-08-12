@@ -37,6 +37,10 @@
 #'     codegen variable (\code{t}/\code{p}/\code{X}/\code{du}/\code{dX}/
 #'     \code{parms}, \code{N1..}, \code{Nw1..}, \code{total_pop},
 #'     \code{secOrd_i_j}, or another quantity's \code{_0} alias);
+#'   \item every declared name (Parameters/Functions/States) is a legal identifier
+#'     -- letters, digits, \code{_}, \code{.} -- so operator characters (\code{^},
+#'     \code{()}, \code{,}, \code{-}, \code{/}, ...) that would be parsed as
+#'     operators rather than a name are rejected;
 #'   \item \code{Quadratic} cells are \code{*goto*coeff} with a target given as a
 #'     compartment index (\code{1..n}) or a State name (e.g. \code{*I*});
 #'   \item each \code{Mixing_<level>} / \code{Pool_<level>} column has a matching
@@ -160,6 +164,25 @@ validate_modelParams <- function(modelParams) {
     add(paste0("name(s) %s collide with the level head-count alias N_<level>; ",
                "rename them."),
         paste(sQuote(alias_clash2), collapse = ", "))
+
+  # A declared name (Parameters / Functions / States) must be a legal identifier:
+  # letters, digits, `_`, `.`, starting with a letter or dot. Operator characters
+  # -- `^` `(` `)` `,` `-` `/` `*` `+` spaces, ... -- do NOT work as names, on any
+  # backend: an expression parses them as operators, so e.g. `f^R_CH` reads as
+  # `f ^ R_CH` (two names and a power), never one name. Caught here so such a sheet
+  # fails with a clear message instead of silently mis-parsing deep in codegen.
+  raw_decl_names <- trimws(c(
+    sub("=.*$",  "", sub("^\\*", "", P)),                      # Parameters: name before '='
+    sub("(<-|=).*$", "", Fn),                                  # Functions:  name before '<-'/'='
+    sub("=.*$",  "", sub("^\\*", "", nz(modelParams$States)))  # States:     name before '='
+  ))
+  raw_decl_names <- unique(raw_decl_names[nzchar(raw_decl_names)])
+  illegal_names  <- raw_decl_names[!grepl("^[A-Za-z.][A-Za-z0-9_.]*$", raw_decl_names)]
+  if (length(illegal_names))
+    add(paste0("name(s) %s are not valid names -- use only letters, digits and '_' ",
+               "(starting with a letter). Operator characters such as ^ ( ) , - / * ",
+               "are parsed as operators, not part of a name, so they cannot be used."),
+        paste(sQuote(illegal_names), collapse = ", "))
 
   is_num <- function(x) !is.na(suppressWarnings(as.numeric(x)))
 
