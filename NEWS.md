@@ -11,6 +11,15 @@
 
 ## Bug fixes
 
+* **Mixing `[lo,hi]|init` and plain `[lo,hi]` fitted parameters no longer breaks
+  post-fit recovery/plotting.** `.recover_solution()` required the fit's
+  fitted-parameter order to match `sap`'s exactly, but the Julia backend returns
+  them in sheet order while `sap` groups with-init parameters first -- so a sheet
+  that interleaves the two tripped a "name/order mismatch" error in `plot_fit()`
+  and friends. Fitted parameters are now reordered to `sap`'s canonical order by
+  name (the p-vector the ODE indexes stays correct); only a genuine missing/extra
+  fitted-parameter name is an error.
+
 * **Censored / interval `negbin` (and `poisson`) data no longer break the Julia
   (NUTS) backend.** A censored or `[A,B]` cell on a discrete-family stream used
   `logcdf`/`logccdf`, which for `NegativeBinomial`/`Poisson` route through Rmath

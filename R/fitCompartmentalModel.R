@@ -950,12 +950,21 @@ bayes_control <- function(sampler    = "NUTS(0.65)",
   .nm <- function(x) { n <- names(x); if (is.null(n)) character(0) else n }
   expected_params <- .nm(sap$params_fitted)
   expected_states <- .nm(sap$states_fitted)
-  if (!identical(.nm(params_fitted), expected_params))
+  # Fitted parameters may arrive in a different order than `sap` defines them: the
+  # Julia backend returns them in sheet order, while `sap` groups with-init params
+  # first (statesAndParams: c(with_names, without_names)). Mixing `[lo,hi]|init`
+  # and plain `[lo,hi]` boxes therefore interleaves the two orderings. Reorder by
+  # NAME to `sap`'s canonical order so the p-vector the ODE indexes stays correct;
+  # error only on a genuine name-set mismatch (a missing/extra fitted parameter),
+  # not on ordering. (States are set-checked below and reordered by compartment
+  # index later, so they need no reordering here.)
+  if (!setequal(.nm(params_fitted), expected_params))
     stop(sprintf(
-      ".recover_solution: fitted-parameter name/order mismatch.\n  expected: [%s]\n  got:      [%s]",
+      ".recover_solution: fitted-parameter name mismatch.\n  expected: [%s]\n  got:      [%s]",
       paste(expected_params, collapse = ", "),
       paste(.nm(params_fitted), collapse = ", ")
     ))
+  if (length(expected_params)) params_fitted <- params_fitted[expected_params]
   if (!identical(sort(.nm(actual_fit_states)), sort(expected_states)))
     stop(sprintf(
       ".recover_solution: fitted-state name mismatch.\n  expected: [%s]\n  got:      [%s]",
