@@ -9,7 +9,44 @@
   (`N_<id>`, `Mixing_<id>`, `Pool_<id>`). Rename any `_<name>` level column to
   `Level_<name>`.
 
+## Bug fixes
+
+* **Censored / interval `negbin` (and `poisson`) data no longer break the Julia
+  (NUTS) backend.** A censored or `[A,B]` cell on a discrete-family stream used
+  `logcdf`/`logccdf`, which for `NegativeBinomial`/`Poisson` route through Rmath
+  (a `Float64`-only C library with no ForwardDiff method) — so NUTS crashed with
+  `MethodError: no method matching Float64(::ForwardDiff.Dual …)`. Those terms now
+  use autodiff-safe pmf summation (`cf_disc_logcdf`/`cf_disc_logccdf`/
+  `cf_disc_loginterval`, built from `logpdf`, which is analytic and
+  differentiable); intervals sum only over `(A,B]`. Continuous families
+  (`gaussian`/`lognormal`) are unchanged (their CDF is already differentiable),
+  and the MLE / R paths were never affected.
+
 ## New features
+
+* **Initial-state expressions can reference state-independent `Functions`.** A
+  `States` cell may now be written in terms of a `Functions` entry whose value is
+  fixed by parameters and time alone -- `sigma_*`, `q_*`, `sigmoid*`, `ntilde_*`,
+  an equilibrium recent-fraction, etc. -- e.g. `*R_H=(f_C+mu+sigma_HL)/(...)*Undiag`.
+  The Function is evaluated at the initial time `t=-1` (calendar year
+  `startpoint-1`), so time-varying ones collapse to their pre-window value
+  (`q -> q_2014`, `sigmoid -> 0`). This removes the need to inline such
+  expressions by hand. **State-DEPENDENT Functions** (`omega_*`, the `p_*` mixing
+  probabilities, anything using a compartment or a level head `N_<level>`) remain
+  unavailable at init -- they are circular there -- and `validate_modelParams()`
+  now rejects a State cell that references one, naming the offending Function.
+  The classification is automatic (a reference-graph fixpoint) and identical
+  across the R, Julia, and Stan backends, which all build the same initial state.
+
+* **Data/dummy formulas can reference the model's `Functions` and level head counts.**
+  A `dataCombined`/`dataDummy` formula is now evaluated on the solved trajectory in a
+  scope that also contains every `Functions`-column quantity (e.g. `q_CH`, `omega_*`,
+  the mixing probabilities `p_*`, the `sigmoid*`s) and the level head counts
+  (`N1..Nk`, `N_<level>`, `total_pop`) -- recomputed from the trajectory exactly as
+  the ODE body computes them. So an overlay that needs a time-varying rate or a
+  transmission denominator can name it (`annual(beta*H_world*q_CH*...)`) instead of
+  inlining the definition. Quantities the replay cannot reconstruct are skipped
+  individually, so the rest still resolve; a model with no `Functions` is unaffected.
 
 * **State initial-value expressions may reference parameters by their plain name.**
   A parameter-dependent initial state can now be written `*S=Pi*Ntot` instead of

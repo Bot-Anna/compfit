@@ -89,6 +89,17 @@ validate_modelParams <- function(modelParams) {
                       func_names, "time", "t", "N", "pi", "startpoint", "cutoff",
                       paste0("N", seq_len(n_levels)), n_alias_names, "total_pop"))
 
+  # A Function may be used in an INITIAL-STATE expression only if it is state-
+  # INDEPENDENT (its value at t=-1 is fixed by parameters + time). A state-
+  # DEPENDENT Function (omega/p_*/anything transitively using a compartment or a
+  # level head N_<level>) is circular at init. Classify so a State cell that
+  # references a dependent Function is rejected with a pointed message.
+  state_syms_init <- unique(c(state_names, "total_pop",
+                              paste0("N", seq_len(n_levels)), n_alias_names,
+                              if (length(cs$compartment_cols))
+                                paste0("Nw", seq_along(cs$compartment_cols))))
+  fn_dependent <- .classify_functions(Fn, state_syms_init, param_names)$dependent
+
   # Column groups: a missing/misspelled group (e.g. 'Prameters') otherwise reads
   # as empty and fails cryptically later. Warn on any unrecognised column; a
   # missing States column is fatal.
@@ -227,11 +238,26 @@ validate_modelParams <- function(modelParams) {
     invisible()
   }
 
+  check_state_fun_dep <- function(rhs, where) {
+    if (!length(fn_dependent)) return(invisible())
+    vars <- tryCatch(all.vars(parse(text = rhs)), error = function(e) character(0))
+    hit  <- intersect(vars, fn_dependent)
+    if (length(hit))
+      add(paste0("%s references state-dependent Function(s) %s, which cannot be ",
+                 "evaluated in an initial-state expression -- they depend on the ",
+                 "compartments being initialised. Reference only parameters or ",
+                 "state-independent Functions (sigma/q/sigmoid/...), or inline the value."),
+          where, paste(sprintf("'%s'", hit), collapse = ", "))
+    invisible()
+  }
+
   ## ---- States ----
   for (s in nz(modelParams$States)) {
     rhs <- sub("^[^=]*=", "", s)
-    if (grepl("^\\*", s))                         check_expr(rhs, sprintf("States cell '%s'", s))
-    else if (grepl("^\\[", trimws(rhs)))          check_box(rhs, sprintf("States cell '%s'", s))
+    if (grepl("^\\*", s)) {
+      check_expr(rhs, sprintf("States cell '%s'", s))
+      check_state_fun_dep(rhs, sprintf("States cell '%s'", s))
+    } else if (grepl("^\\[", trimws(rhs)))        check_box(rhs, sprintf("States cell '%s'", s))
   }
   ## ---- Parameters ----
   for (p in P) {

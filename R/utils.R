@@ -126,6 +126,115 @@ has_leading_asterisk <- function(text) {
   substr(text, 1, 1) == "*"
 }
 
+# `if_else(cond, yes, no)`: a dplyr-style spelling that model sheets commonly use
+# in Functions (e.g. a time-varying step). The Julia/Stan emitters translate it to
+# a ternary, but the R backend evaluates the generated code as R, where `if_else`
+# is not a base function -- so provide it here (base `ifelse` semantics) so every
+# R-side solve (loss, MLE/MAP warm start, plotting) resolves it. Extra args (e.g.
+# dplyr's `missing=`) are ignored; ODE use is scalar.
+if_else <- function(condition, true, false, ...) ifelse(condition, true, false)
+
+# ---- Functions available to initial-state expressions ----------------------
+# The initial state lives at t = -1 (calendar year startpoint-1). A Functions-
+# column entry may be referenced there ONLY if it is STATE-INDEPENDENT -- i.e.
+# its value at t=-1 is fixed by parameters + time alone, not by the compartments
+# (which are the very thing being initialised). `omega_*`/`p_*`/`N_<level>` are
+# state-dependent and circular at init; `sigma_*`/`q_*`/`sigmoid*`/`ntilde_*` are
+# not. `.classify_functions()` separates the two by a monotone allowlist fixpoint
+# over the reference graph: a Function is independent iff every identifier it
+# references is a parameter, an exogenous grid symbol, or an already-proven
+# independent Function. Unknown symbols never enter the set (fail-safe -> treated
+# as dependent, and flagged separately by validate_modelParams()).
+#
+# `functions_raw` is the raw Functions column ("name <- expr"); `state_symbols`
+# the compartments PLUS their derived aliases (N1..Nk, N_<level>, total_pop,
+# Nw<L>); `param_symbols` every declared parameter. Returns the independent
+# Functions as a named character vector rhs (in dependency order) and the
+# dependent names.
+.EXOGENOUS_INIT_SYMBOLS <- c("time", "t", "startpoint", "cutoff", "pi", "T", "F")
+
+# Declared names in an entry column (States / Parameters): the identifier before
+# the first `=` / `[` / `<` / `(`, with any leading `*` stripped. Used to gather
+# the parameter symbol set for Function classification without a full parse.
+.declared_names <- function(vec) {
+  vec <- as.character(vec)
+  vec <- vec[!is.na(vec) & nzchar(trimws(vec))]
+  vec <- gsub(" ", "", vec)
+  nm  <- sub("^\\*?([A-Za-z.][A-Za-z0-9_.]*).*$", "\\1", vec)
+  unique(nm[nzchar(nm)])
+}
+
+.classify_functions <- function(functions_raw, state_symbols, param_symbols) {
+  functions_raw <- as.character(functions_raw)
+  functions_raw <- functions_raw[!is.na(functions_raw) & nzchar(trimws(functions_raw))]
+  if (!length(functions_raw))
+    return(list(independent = setNames(character(0), character(0)),
+                dependent = character(0)))
+
+  nm  <- sub("^\\s*([A-Za-z.][A-Za-z0-9_.]*)\\s*(<-|=).*$", "\\1", functions_raw)
+  rhs <- sub("^\\s*[A-Za-z.][A-Za-z0-9_.]*\\s*(<-|=)\\s*", "", functions_raw)
+  refs <- lapply(rhs, function(e) {
+    v <- tryCatch(all.vars(parse(text = e)[[1]]), error = function(err) character(0))
+    unique(v)
+  })
+
+  known_exog <- c(param_symbols, .EXOGENOUS_INIT_SYMBOLS)
+  indep <- character(0)                         # names proven independent, in order
+  repeat {
+    added <- FALSE
+    for (i in seq_along(nm)) {
+      if (nm[i] %in% indep) next
+      allowed <- c(known_exog, indep)           # + already-independent Functions
+      if (all(refs[[i]] %in% allowed)) { indep <- c(indep, nm[i]); added <- TRUE }
+    }
+    if (!added) break
+  }
+  indep_idx <- match(indep, nm)
+  list(independent = setNames(rhs[indep_idx], nm[indep_idx]),
+       dependent   = setdiff(nm, indep))
+}
+
+# Turn the state-independent Functions into `<name>_0 <- <rhs>` lines evaluated
+# in the initial-state (`_0`) scope: rewrite every parameter / independent-Function
+# name to its `_0` alias, `time` to the init time (-1), and `startpoint`/`cutoff`
+# to their build-time literal values. The result is plain R that the loss's
+# states_params block can run, and the same rewritten rhs feeds the Julia/Stan
+# emitters (via their r_to_* translators) so all backends build an identical
+# initial state.
+.INIT_TIME <- -1
+
+.init_function_rhs <- function(rhs, alias_names, startpoint, cutoff) {
+  rhs <- gsub("\\btime\\b", paste0("(", .INIT_TIME, ")"), rhs, perl = TRUE)
+  rhs <- gsub("\\bstartpoint\\b", format(startpoint, scientific = FALSE), rhs, perl = TRUE)
+  if (length(cutoff) == 1 && is.finite(cutoff))
+    rhs <- gsub("\\bcutoff\\b", format(cutoff, scientific = FALSE), rhs, perl = TRUE)
+  for (n in alias_names[order(-nchar(alias_names))])
+    rhs <- gsub(paste0("\\b\\Q", n, "\\E\\b"), paste0(n, "_0"), rhs, perl = TRUE)
+  rhs
+}
+
+# Ordered (name, rhs) pairs for the state-independent Functions at init: `rhs` is
+# the transformed R expression (params/indep-Functions -> `_0`, time -> -1,
+# startpoint/cutoff literalised), ready to be formatted per backend.
+.init_function_defs <- function(independent, param_symbols, startpoint, cutoff) {
+  if (!length(independent))
+    return(data.frame(name = character(0), rhs = character(0), stringsAsFactors = FALSE))
+  alias <- c(param_symbols, names(independent))
+  data.frame(
+    name = names(independent),
+    rhs  = vapply(unname(independent),
+                  function(e) .init_function_rhs(e, alias, startpoint, cutoff), character(1)),
+    stringsAsFactors = FALSE)
+}
+
+# R init lines: `<name>_0 <- <rhs>`, for the loss's states_params block and the
+# .recover_solution() closures path.
+.init_function_lines <- function(independent, param_symbols, startpoint, cutoff) {
+  d <- .init_function_defs(independent, param_symbols, startpoint, cutoff)
+  if (!nrow(d)) return(character(0))
+  paste0(d$name, "_0 <- ", d$rhs)
+}
+
 # A data stream is "cumulative" iff its formula is wrapped in cumulative(...).
 # Used by BOTH the loss (to difference the model output to annual increments
 # for FITTING) and .prepare_data (to difference the data the same way), so they

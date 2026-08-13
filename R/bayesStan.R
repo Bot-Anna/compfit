@@ -337,7 +337,8 @@ buildStanModel <- function(prior_spec, like_specs, formulas, n_years, partition,
                            number_of_comps, comp_names, ode_function,
                            sigma_prior_stan = "normal(0, 1)",
                            phi_prior_stan   = "gamma(2, 0.2)",
-                           ode_solver       = "rk45") {
+                           ode_solver       = "rk45",
+                           init_fun_defs    = NULL) {
   if (is.null(ode_function))
     stop("buildStanModel(): no Stan ODE was generated for this model.")
 
@@ -385,6 +386,17 @@ buildStanModel <- function(prior_spec, like_specs, formulas, n_years, partition,
   }
   for (nm in prior_spec$order$params_fitted)
     def_lines <- c(def_lines, sprintf("  real %s_0 = %s;", nm, nm))
+  # State-independent Functions available to initial-state expressions (t=-1),
+  # after the parameter `_0` aliases and before the derived states -- mirroring the
+  # R loss and the Julia emitter.
+  if (!is.null(init_fun_defs) && nrow(init_fun_defs)) {
+    for (i in seq_len(nrow(init_fun_defs))) {
+      nm  <- init_fun_defs$name[i]
+      rhs <- .r_to_stan(init_fun_defs$rhs[i])
+      def_lines <- c(def_lines, sprintf("  real %s = %s;", nm, rhs),
+                                sprintf("  real %s_0 = %s;", nm, nm))
+    }
+  }
   derived_state_names <- character(0)
   for (nm in prior_spec$order$states_fixed) {
     rhs <- prior_spec$fixed_states[[nm]]
@@ -616,7 +628,8 @@ buildStanModel <- function(prior_spec, like_specs, formulas, n_years, partition,
                          n_comps, comp_names, model$stan_code,
                          sigma_prior_stan = bc$sigma_prior_stan %||% "normal(0, 1)",
                          phi_prior_stan   = bc$phi_prior_stan   %||% "gamma(2, 0.2)",
-                         ode_solver       = ode_solver)
+                         ode_solver       = ode_solver,
+                         init_fun_defs    = model$init_fun_defs)
 
   # Compile (cached by program text; a ~1-2 min C++ build the first time) + sample.
   # progress = FALSE silences the sampler's per-iteration output, the chain

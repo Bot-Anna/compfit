@@ -536,6 +536,27 @@ compartmentalFunction <- function(modelParams,
       startpoint = startpoint
     ), error = function(e) NULL)
 
+  # ---- Derived-quantity replay spec ----
+  # Enough to recompute every Functions-column quantity (q_CH, omega_*, p_*,
+  # sigmoids, ...) and the level head counts on an ALREADY-SOLVED trajectory, so
+  # data/dummy formulas can reference them by name (see solve_and_evaluate()).
+  # We keep the RAW Functions (original state names + `time`, not the X[k]/`t`
+  # codegen form) because they are replayed as plain R, vectorised over the grid,
+  # against the named state columns. `level_members`/`level_names`/`startpoint`/
+  # `cutoff` mirror exactly what the generated ODE uses, so the replay agrees with
+  # the solve.
+  functions_raw <- data_vals_coeffs$Functions
+  functions_raw <- as.character(functions_raw[!is.na(functions_raw) &
+                                                trimws(as.character(functions_raw)) != ""])
+  derived_spec <- list(
+    functions_raw = functions_raw,
+    level_members = level_compartments,   # list of integer index vectors
+    level_names   = level_names,          # character (empty when no Level_ column)
+    comp_names    = comp_names,           # canonical compartment order
+    startpoint    = startpoint,
+    cutoff        = cutoff
+  )
+
   # ---- Return statement ----
   # We return both the function and the vector of functions needed for multiple
   # workers, or just the former, depending on the value of multipleWorkers
@@ -544,12 +565,14 @@ compartmentalFunction <- function(modelParams,
                   date                   = date,
                   julia_code             = julia_code,
                   stan_code              = stan_code,
+                  derived_spec           = derived_spec,
                   vector_of_functions    = vector_of_functions))
     } else {
       return(list(compartmental_function = sir_model,
                   date                   = date,
                   julia_code             = julia_code,
-                  stan_code              = stan_code))
+                  stan_code              = stan_code,
+                  derived_spec           = derived_spec))
     }
   
 }

@@ -2,7 +2,8 @@ generateExpressions <- function(number_of_comps,
                                 states_fitted, states_fixed, states_functions,
                                 params_fitted, params_fixed, params_functions,
                                 conditions,
-                                comp_names = paste0("X", seq_len(number_of_comps))) {
+                                comp_names = paste0("X", seq_len(number_of_comps)),
+                                init_function_defs = character(0)) {
   # For setting up the loss function and the initial_states expression
   
   # First the states, then the params
@@ -103,15 +104,21 @@ generateExpressions <- function(number_of_comps,
                               collapse = "")
     }
   }
+  # State-independent Functions evaluated at t=-1: emitted AFTER all parameter
+  # `_0` definitions (which they reference) and BEFORE the fixed states (which may
+  # reference them). Each entry is a ready `<name>_0 <- <rhs>` line.
+  for (d in init_function_defs)
+    states_params_expression <- paste(c(states_params_expression, "\n", d), collapse = "")
+
   if (length(states_fixed) != 0) {
     for (i in 1:length(states_fixed)) {
-      states_params_expression <- paste(c(states_params_expression, 
-                                          paste(c("\n", 
+      states_params_expression <- paste(c(states_params_expression,
+                                          paste(c("\n",
                                                   names(states_fixed)[i],
-                                                  "_0", 
-                                                  "<-", 
-                                                  unname(states_fixed[i])), 
-                                                collapse = "")), 
+                                                  "_0",
+                                                  "<-",
+                                                  unname(states_fixed[i])),
+                                                collapse = "")),
                                         collapse = "")
     }
   }

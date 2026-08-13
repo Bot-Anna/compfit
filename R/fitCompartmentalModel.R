@@ -222,7 +222,32 @@ bayes_control <- function(sampler    = "NUTS(0.65)",
 
   compartment_structure <- numberOfComps(modelParams)
 
-  sap <- statesAndParams(modelParams)
+  # ---- Classify Functions for initial-state use ----------------------------
+  # State-INDEPENDENT Functions (value at t=-1 fixed by parameters + time) may be
+  # referenced in initial-state cells; their `<name>_0` definitions are emitted
+  # into the init scope (all backends). State-DEPENDENT ones (omega/p_*/N_<level>)
+  # are circular at init and rejected by validate_modelParams(). See
+  # .classify_functions() / .init_function_lines().
+  param_symbols  <- .declared_names(modelParams$Parameters)
+  level_cols     <- grep("^Level_", names(modelParams), value = TRUE, ignore.case = TRUE)
+  level_names    <- sub("^Level_", "", level_cols, ignore.case = TRUE)
+  n_levels       <- if (length(level_cols)) length(level_cols) else 1L
+  state_symbols  <- unique(c(compartment_structure$comp_names,
+                             paste0("N", seq_len(n_levels)), "total_pop",
+                             if (length(level_names))
+                               c(paste0("N_", level_names), paste0("Nw", seq_along(level_names)))))
+  fn_class       <- .classify_functions(modelParams$Functions, state_symbols, param_symbols)
+  tg_ck          <- .time_grid(modelParams)
+  init_fun_defs  <- .init_function_defs(fn_class$independent, param_symbols,
+                                        startpoint = tg_ck$startpoint, cutoff = tg_ck$cutoff)
+  init_fun_lines <- if (nrow(init_fun_defs)) paste0(init_fun_defs$name, "_0 <- ", init_fun_defs$rhs)
+                    else character(0)
+
+  sap <- statesAndParams(modelParams, indep_fun_names = names(fn_class$independent))
+  # Carry the init-time Function definitions on `sap` so the closures path
+  # (.recover_solution, reached by every caller that already passes `sap`) can
+  # evaluate them into the `_0` scope without a new argument at 6 call sites.
+  sap$init_fun_lines <- init_fun_lines
 
   expressions <- generateExpressions(
     number_of_comps  = compartment_structure$number_of_comps,
@@ -233,7 +258,8 @@ bayes_control <- function(sampler    = "NUTS(0.65)",
     params_fixed     = sap$params_fixed,
     params_functions = sap$params_functions,
     conditions       = if ("Conditions" %in% names(modelParams)) modelParams$Conditions else NULL,
-    comp_names       = compartment_structure$comp_names
+    comp_names       = compartment_structure$comp_names,
+    init_function_defs = init_fun_lines
   )
 
   cf <- compartmentalFunction(
@@ -260,6 +286,11 @@ bayes_control <- function(sampler    = "NUTS(0.65)",
     julia_code  = cf$julia_code,
     stan_code   = cf$stan_code,
     date        = cf$date,
+    derived     = cf$derived_spec, # replay spec for Functions/level heads in formulas
+    init_funs   = fn_class,        # state-independent Functions usable at init (+ dependent names)
+    init_fun_lines = init_fun_lines,  # their `_0` definitions (R form), for the closures path
+    init_fun_defs  = init_fun_defs,   # (name, rhs) pairs, for the Julia/Stan emitters
+    init_time_grid = tg_ck,        # startpoint/cutoff used for the t=-1 init evaluation
     modelParams = modelParams      # original sheet, for fill_params / write_filled_params
   )
 }
@@ -802,7 +833,8 @@ bayes_control <- function(sampler    = "NUTS(0.65)",
     number_of_comps = model$structure$number_of_comps,
     comp_names      = model$structure$comp_names,
     sigma_prior     = bc$sigma_prior,
-    phi_prior       = bc$phi_prior
+    phi_prior       = bc$phi_prior,
+    init_fun_defs   = model$init_fun_defs
   )
   registerJuliaBayesModel(model_code)
 
@@ -942,6 +974,22 @@ bayes_control <- function(sampler    = "NUTS(0.65)",
   states_fixed_final_2 <- sap$states_fixed
   parms_states <- parms
   names(parms_states) <- paste0(names(parms_states), "_0")
+
+  # State-independent Functions available to initial-state expressions: evaluate
+  # their `<name>_0 <- ...` definitions (at t=-1) in a scope seeded with the `_0`
+  # parameters, then fold the results into parms_states so the derived-state
+  # closures below resolve a reference like `sigma_HL_CH_0`. Mirrors the loss's
+  # states_params block; kept in sync via the shared sap$init_fun_lines.
+  if (length(sap$init_fun_lines)) {
+    fenv <- list2env(as.list(parms_states))
+    for (ln in sap$init_fun_lines)
+      tryCatch(eval(parse(text = ln), envir = fenv), error = function(e) NULL)
+    new0 <- setdiff(ls(fenv), names(parms_states))
+    if (length(new0)) {
+      addv <- vapply(new0, function(n) as.numeric(get(n, fenv)[1]), numeric(1))
+      parms_states <- c(parms_states, setNames(addv, new0))
+    }
+  }
 
   states_fixed_final_2[sap$non_numeric_fixed] <- mapply(
     function(f) do.call(f, list(parms_states)),

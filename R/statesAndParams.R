@@ -67,7 +67,7 @@
        with_random = with_random, functions = functions)
 }
 
-statesAndParams <- function(modelParams) {
+statesAndParams <- function(modelParams, indep_fun_names = character(0)) {
   comp_names <- .compartments(modelParams)   # canonical compartment order (names)
   S <- .parse_entry_group(modelParams$States)
   P <- .parse_entry_group(modelParams$Parameters)
@@ -79,8 +79,11 @@ statesAndParams <- function(modelParams) {
   # `_0` form. Users routinely write the plain name (`Pi_CH*S_totCH`); rewrite each
   # declared name here to its `_0` alias so both paths resolve. A no-op for entries
   # already written with `_0` (a `\b`-bounded name never matches inside `name_0`).
+  # `indep_fun_names` are the state-independent Functions (sigma_*, q_*, ...): a
+  # State expression may reference them, and their `_0` value at t=-1 is defined in
+  # the init scope, so rewrite the bare reference to its `_0` alias here too.
   .alias_names <- unique(c(names(P$fixed), P$without_names, P$with_names,
-                           names(P$functions), comp_names))
+                           names(P$functions), comp_names, indep_fun_names))
   .alias_names <- .alias_names[nzchar(.alias_names)]
   .to_init <- function(expr) {
     if (is.na(expr) || !nzchar(expr) || !length(.alias_names)) return(expr)

@@ -104,16 +104,33 @@
                       negbin    = sprintf("NegativeBinomial2(max(%s[k], 1e-9), %s)", mui, disp_var),
                       stop(sprintf("Likelihood family '%s' not yet supported in Julia builder.", family))
   )
-  
+
+  # NegativeBinomial/Poisson CDFs route through StatsFuns.RFunctions (Rmath, a C
+  # library that is Float64-only and has no ForwardDiff method) -- so any
+  # censored/interval term on a DISCRETE family crashes NUTS with
+  # `Float64(::Dual)`. For those families emit the autodiff-safe pmf-sum helpers
+  # (cf_disc_logcdf/ccdf, which sum logpdf -- pure `loggamma`, differentiable)
+  # instead of logcdf/logccdf. Continuous families keep the analytic CDF (already
+  # ForwardDiff-safe). Observed points use `~`/logpdf and are safe either way.
+  is_discrete <- family %in% c("poisson", "negbin")
+  lcdf  <- if (is_discrete) "cf_disc_logcdf"  else "logcdf"
+  lccdf <- if (is_discrete) "cf_disc_logccdf" else "logccdf"
+  # Interval hard edges: discrete families sum the pmf directly over (A,B] (narrow,
+  # so cheaper than two full CDF sums); continuous keep the stable CDF log-diff.
+  interval_expr <- if (is_discrete)
+      sprintf("cf_disc_loginterval(dist_i, ilow_mat[k, %d], iupp_mat[k, %d])", i, i)
+    else
+      sprintf("cf_logsubexp(logcdf(dist_i, iupp_mat[k, %d]), logcdf(dist_i, ilow_mat[k, %d]))", i, i)
+
   paste0(
     sprintf("for k in 1:%s\n", ni),
     sprintf("        dist_i = %s\n", dist_expr),
     sprintf("        if obs_mask[k, %d] == 1\n", i),
     sprintf("            %s ~ dist_i\n", yk),
     sprintf("        elseif cens_mask[k, %d] == 1\n", i),
-    sprintf("            Turing.@addlogprob! logcdf(dist_i, limit_mat[k, %d])\n", i),
+    sprintf("            Turing.@addlogprob! %s(dist_i, limit_mat[k, %d])\n", lcdf, i),
     sprintf("        elseif lcens_mask[k, %d] == 1\n", i),
-    sprintf("            Turing.@addlogprob! logccdf(dist_i, llimit_mat[k, %d])\n", i),
+    sprintf("            Turing.@addlogprob! %s(dist_i, llimit_mat[k, %d])\n", lccdf, i),
     # INTERVAL [A,B]: hard edges give P(A <= Y <= B) via a stable log-difference
     # of the CDF (ilow_mat carries the family-aware A-1 shift for discrete
     # families). SOFT shoulders [A,B]~s (idev_lo_mat[k,i] > 0) instead add a
@@ -123,15 +140,15 @@
     sprintf("            if idev_lo_mat[k, %d] > 0\n", i),
     sprintf("                Turing.@addlogprob! -(max(ilow_mat[k, %d] - %s[k], 0.0) / idev_lo_mat[k, %d] + max(%s[k] - iupp_mat[k, %d], 0.0) / idev_hi_mat[k, %d])\n", i, mui, i, mui, i, i),
     "            else\n",
-    sprintf("                Turing.@addlogprob! cf_logsubexp(logcdf(dist_i, iupp_mat[k, %d]), logcdf(dist_i, ilow_mat[k, %d]))\n", i, i),
+    sprintf("                Turing.@addlogprob! %s\n", interval_expr),
     "            end\n",
     # ASYMMETRIC: hard one-sided anchor at A (logccdf/logcdf) + soft linear damping
     # of the model mean's excess in the soft direction (scale = dev).
     sprintf("        elseif asym_mask[k, %d] == 1\n", i),
     sprintf("            if asym_dir_mat[k, %d] > 0\n", i),
-    sprintf("                Turing.@addlogprob! logccdf(dist_i, asym_val_mat[k, %d]) - (max(%s[k] - asym_val_mat[k, %d], 0.0) / asym_dev_mat[k, %d])\n", i, mui, i, i),
+    sprintf("                Turing.@addlogprob! %s(dist_i, asym_val_mat[k, %d]) - (max(%s[k] - asym_val_mat[k, %d], 0.0) / asym_dev_mat[k, %d])\n", lccdf, i, mui, i, i),
     "            else\n",
-    sprintf("                Turing.@addlogprob! logcdf(dist_i, asym_val_mat[k, %d]) - (max(asym_val_mat[k, %d] - %s[k], 0.0) / asym_dev_mat[k, %d])\n", i, i, mui, i),
+    sprintf("                Turing.@addlogprob! %s(dist_i, asym_val_mat[k, %d]) - (max(asym_val_mat[k, %d] - %s[k], 0.0) / asym_dev_mat[k, %d])\n", lcdf, i, i, mui, i),
     "            end\n",
     "        end\n",
     "    end"
@@ -162,7 +179,8 @@ buildJuliaBayesModel <- function(prior_spec,
                                  number_of_comps,
                                  comp_names  = paste0("X", seq_len(number_of_comps)),
                                  sigma_prior = "truncated(Normal(0, 1), 0, Inf)",
-                                 phi_prior   = "Gamma(2, 5)") {
+                                 phi_prior   = "Gamma(2, 5)",
+                                 init_fun_defs = NULL) {
   
   ## --- Prior block: one ~ per estimated quantity, in ODE order ---
   # Map an R/parsePrior dist spec to a Julia Distributions.jl constructor.
@@ -258,7 +276,25 @@ buildJuliaBayesModel <- function(prior_spec,
   for (nm in prior_spec$order$params_fitted) {
     def_lines <- c(def_lines, sprintf("    %s_0 = %s", nm, nm))
   }
-  
+
+  # State-independent Functions available to initial-state expressions, evaluated
+  # at t=-1 (their rhs already carries `_0` names + the -1/startpoint literals from
+  # .init_function_defs). Emitted AFTER the parameter `_0` aliases and BEFORE the
+  # derived states, mirroring the R loss's states_params block. Julia has a native
+  # `ifelse`; only `if_else` needs mapping.
+  # Emit BOTH the bare name and its `_0` alias (as parameters are), because the
+  # Julia/Stan derived-state expressions reference the bare name (`S = frac*Ntot`),
+  # while `_0`-style references also resolve.
+  if (!is.null(init_fun_defs) && nrow(init_fun_defs)) {
+    for (i in seq_len(nrow(init_fun_defs))) {
+      nm  <- init_fun_defs$name[i]
+      rhs <- gsub("\\bif_else\\b", "ifelse", init_fun_defs$rhs[i])
+      def_lines <- c(def_lines, sprintf("    %s = %s", nm, rhs),
+                                sprintf("    %s_0 = %s", nm, nm))
+    }
+  }
+
+
   # Derived states: a fixed state whose RHS is an expression (not a plain
   # number) becomes a definition `Xk = <expr>`. Plain-number fixed states and
   # sampled states are NOT defined here (they go straight into X0).
@@ -396,6 +432,33 @@ buildJuliaBayesModel <- function(prior_spec,
     "# a >= b, used by interval-censored [A,B] likelihood contributions.",
     "cf_log1mexp(x) = x < -log(2.0) ? log1p(-exp(x)) : log(-expm1(x))",
     "cf_logsubexp(a, b) = a + cf_log1mexp(b - a)",
+    "",
+    "# Autodiff-safe CDFs for DISCRETE families (NegativeBinomial/Poisson): their",
+    "# Distributions logcdf routes through Rmath (Float64-only, no ForwardDiff",
+    "# method). logpdf is analytic (loggamma) and differentiable, so we sum it.",
+    "# The integer limits come from the DATA matrices (plain Float64), so floor(Int,.)",
+    "# is safe; only `dist`'s parameters are Duals.",
+    "cf_logaddexp(a, b) = a > b ? a + log1p(exp(b - a)) : (isinf(b) && b < 0 ? a : b + log1p(exp(a - b)))",
+    "function cf_disc_logcdf(dist, L)          # log P(Y <= L)",
+    "    Li = floor(Int, L)",
+    "    Li < 0 && return -Inf",
+    "    lp = logpdf(dist, 0)",
+    "    for k in 1:Li",
+    "        lp = cf_logaddexp(lp, logpdf(dist, k))",
+    "    end",
+    "    return lp",
+    "end",
+    "cf_disc_logccdf(dist, L) = cf_log1mexp(cf_disc_logcdf(dist, L))   # log P(Y > L)",
+    "function cf_disc_loginterval(dist, Lo, Hi)   # log P(A <= Y <= B); Lo carries the A-1 shift",
+    "    lo = floor(Int, Lo) + 1",
+    "    hi = floor(Int, Hi)",
+    "    hi < lo && return -Inf",
+    "    lp = logpdf(dist, lo)",
+    "    for k in (lo + 1):hi",
+    "        lp = cf_logaddexp(lp, logpdf(dist, k))",
+    "    end",
+    "    return lp",
+    "end",
     sep = "\n")
 }
 
