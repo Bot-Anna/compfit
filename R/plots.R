@@ -179,16 +179,19 @@ cfit_theme <- function(base_size = 11) {
         colour = pal$censor, linewidth = 0.6, arrow = cens_arrow, na.rm = TRUE)
   }
 
-  # Interval [A,B]: a vertical bracket from A to B with tick ends.
+  # Interval [A,B]: a vertical bracket from A to B with tick ends. Drawn a shade
+  # DARKER than the base censor grey so an in-window ("truly fitted") interval
+  # reads stronger than a faint held-out one (see the held-out block in plot_fit).
   if (!is.null(interval_df) && any(!is.na(interval_df$low))) {
+    cen_int <- grDevices::adjustcolor(pal$censor, red.f = 0.65, green.f = 0.65, blue.f = 0.65)
     p <- p +
       ggplot2::geom_linerange(data = interval_df,
         ggplot2::aes(x = date, ymin = low, ymax = high),
-        colour = pal$censor, linewidth = 0.8, na.rm = TRUE) +
+        colour = cen_int, linewidth = 0.9, na.rm = TRUE) +
       ggplot2::geom_point(data = interval_df, ggplot2::aes(x = date, y = low),
-        colour = pal$censor, shape = 95, size = 3, na.rm = TRUE) +   # "-" tick
+        colour = cen_int, shape = 95, size = 3, na.rm = TRUE) +   # "-" tick
       ggplot2::geom_point(data = interval_df, ggplot2::aes(x = date, y = high),
-        colour = pal$censor, shape = 95, size = 3, na.rm = TRUE)
+        colour = cen_int, shape = 95, size = 3, na.rm = TRUE)
   }
 
   # Asymmetric A +/- dev: a capped interval line over [A, A + dir*dev] (like the
@@ -632,15 +635,36 @@ plot_fit <- function(fit, bands = TRUE,
   # fitted", one year to the left of the first fitted point.
   ho <- fit$data$heldout
   if (!is.null(ho)) {
+    ho_lo <- if (!is.null(ho$low))  ho$low  else rep(NA_real_, length(ho$value))
+    ho_hi <- if (!is.null(ho$high)) ho$high else rep(NA_real_, length(ho$value))
     for (i in seq_along(streams)) {
-      st <- streams[i]; yv <- ho$value[i]
-      if (is.finite(yv) && st %in% names(plots))
+      st <- streams[i]
+      if (!(st %in% names(plots))) next
+      lo <- ho_lo[i]; hi <- ho_hi[i]; yv <- ho$value[i]
+      if (is.finite(lo) && is.finite(hi)) {
+        # Held-out interval [A,B]: same bracket geometry as an in-window interval
+        # but a FAINTER grey (solid), so it reads as shown-not-fitted while the
+        # darker in-window bracket stays the stronger of the two.
+        cen_ho <- grDevices::adjustcolor(pal$censor, alpha.f = 0.45)
+        idf <- data.frame(date = ho$date, low = lo, high = hi)
+        plots[[st]] <- plots[[st]] +
+          ggplot2::geom_linerange(data = idf,
+            ggplot2::aes(x = date, ymin = low, ymax = high),
+            colour = cen_ho, linewidth = 0.8, na.rm = TRUE) +
+          ggplot2::geom_point(data = idf, ggplot2::aes(x = date, y = low),
+            colour = cen_ho, shape = 95, size = 3, na.rm = TRUE) +   # "-" tick
+          ggplot2::geom_point(data = idf, ggplot2::aes(x = date, y = high),
+            colour = cen_ho, shape = 95, size = 3, na.rm = TRUE)     # "-" tick
+      } else if (is.finite(yv)) {
+        # Held-out point (observed value, or a censored bound): open marker so it
+        # reads as "shown, not fitted".
         plots[[st]] <- plots[[st]] +
           ggplot2::geom_point(
             data = data.frame(date = ho$date, y = yv),
             ggplot2::aes(x = date, y = y),
             shape = 21, colour = pal$data, fill = "white",
             size = 2.3, stroke = 0.8, na.rm = TRUE)
+      }
     }
   }
 

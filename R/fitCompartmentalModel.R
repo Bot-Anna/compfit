@@ -422,17 +422,28 @@ bayes_control <- function(sampler    = "NUTS(0.65)",
   heldout <- NULL
   ho_name <- as.character(tg$startpoint - 1L)
   if (ho_name %in% setdiff(names(data_combined), meta_lab)) {
-    ho_y <- vapply(as.character(data_combined[[ho_name]]), function(cell) {
-      o <- tryCatch(parse_data_cell(cell), error = function(e) NULL)
+    ho_parsed <- lapply(as.character(data_combined[[ho_name]]), function(cell)
+      tryCatch(parse_data_cell(cell), error = function(e) NULL))
+    ho_y <- vapply(ho_parsed, function(o) {
       if (is.null(o)) return(NA_real_)
       switch(o$kind,
              observed = o$value,
-             interval = (o$limit + o$upper) / 2,   # plot at the interval midpoint
+             interval = (o$limit + o$upper) / 2,   # point fallback: interval midpoint
              censored = o$limit,                   # plot at the bound
              NA_real_)
     }, numeric(1), USE.NAMES = FALSE)
+    # Interval [A,B] bounds, so plot_fit() can draw a held-out interval as a
+    # bracket (like an in-window interval) instead of a lone midpoint dot. NA for
+    # non-interval cells, where ho_y carries the point instead.
+    ho_lo <- vapply(ho_parsed, function(o)
+      if (!is.null(o) && identical(o$kind, "interval")) o$limit else NA_real_,
+      numeric(1), USE.NAMES = FALSE)
+    ho_hi <- vapply(ho_parsed, function(o)
+      if (!is.null(o) && identical(o$kind, "interval")) o$upper else NA_real_,
+      numeric(1), USE.NAMES = FALSE)
     heldout <- list(date  = as.Date(sprintf("%d-12-31", tg$startpoint - 1L)),
                     value = ho_y,                              # per stream (row order)
+                    low   = ho_lo, high = ho_hi,               # interval bounds (NA if not)
                     formula = as.character(data_combined$Formula))
     data_combined[[ho_name]] <- NULL                          # exclude from the fit
   }
