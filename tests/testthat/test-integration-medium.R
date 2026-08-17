@@ -38,5 +38,21 @@ chk("conservation: S+I+R stays ~constant (closed SIR)",
 res <- chk_ok("plot_fit builds", plot_fit(fit, data_dummy = sc$dataDummy))
 chk("per-stream plots produced", length(res$plots) > 0)
 
+# dataCombined takes precedence: a dummy whose Formula equals a fitted stream is
+# skipped (the fitted panel, with data points, is kept) and a message is emitted.
+th_section("dataCombined precedence over dataDummy")
+s1 <- fit$data$names_data_points[1]
+dd <- data.frame(Label = paste(s1, "(dummy)"), Formula = s1, stringsAsFactors = FALSE)
+saw_msg <- FALSE
+res2 <- withCallingHandlers(
+  plot_fit(fit, data_dummy = dd),
+  message = function(m) {
+    if (grepl("both dataCombined and dataDummy", conditionMessage(m))) saw_msg <<- TRUE
+    invokeRestart("muffleMessage")
+  })
+chk("precedence message emitted", saw_msg)
+chk("shared-formula panel is the fitted one (not the dummy)",
+    !identical(res2$plots[[s1]]$labels$title, paste(s1, "(dummy)")))
+
 th_summary(LBL)
 })

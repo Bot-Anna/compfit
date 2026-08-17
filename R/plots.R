@@ -674,7 +674,16 @@ plot_fit <- function(fit, bands = TRUE,
   if (!is.null(data_dummy)) {
     data_dummy   <- .default_label(data_dummy)   # missing Label -> Formula
     dummy_labels <- setNames(data_dummy$Label, data_dummy$Formula)
+    # Precedence: a formula present in BOTH dataCombined and dataDummy is drawn
+    # from dataCombined (the fitted panel, with its data points); the dummy
+    # overlay is skipped so a data-less trajectory panel never overwrites the
+    # observed one.
+    dup <- intersect(data_dummy$Formula, streams)
+    if (length(dup))
+      message("plot_fit(): ", paste(dup, collapse = ", "),
+              " in both dataCombined and dataDummy; keeping the dataCombined (fitted) panel.")
     for (st in data_dummy$Formula) {
+      if (st %in% streams) next                  # dataCombined takes precedence
       lab <- dummy_labels[[st]]; if (is.null(lab) || is.na(lab)) lab <- st
       p <- ggplot2::ggplot()
       # Band: prefer the inner mean band ("both"), else the primary band list.
