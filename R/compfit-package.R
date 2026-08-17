@@ -10,7 +10,8 @@
 #'
 #' @keywords internal
 #' @import stats
-#' @import utils
+#' @importFrom utils capture.output globalVariables head read.csv read.delim
+#'   setTxtProgressBar tail txtProgressBar write.csv write.table
 #' @import ggplot2
 #' @importFrom grDevices colorRampPalette dev.list dev.off
 #' @importFrom pracma trapz
