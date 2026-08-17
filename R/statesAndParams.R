@@ -3,21 +3,33 @@
 # (statesAndParams used to carry two near-identical copies -- the source of the
 # name/length prior bug, which the States half still latently had):
 #   *name=value          fixed (a number, or an expression of other names)
+#   name=value           fixed too: a bare number needs no '*' ('*' is optional)
 #   name=[lo,hi]         fitted, Uniform prior / box search
 #   name=Dist(args)[..]  fitted, a named prior (box via .mle_box for the search)
 #   name=[lo,hi]|init    fitted with a known initial value
 #   name=<expr>          NOT a prior -> a function of other names
+# The '*' is optional for numeric constants: `mu=0.01` and `*mu=0.01` are the
+# same fixed entry. A '*' remains the ONLY way to fix a non-numeric EXPRESSION
+# (`*p=a*b`); an unstarred expression stays a function.
 # Returns a list of typed pieces; statesAndParams() maps them to its outputs.
 .parse_entry_group <- function(vec) {
   vec <- vec[!is.na(vec) & vec != ""]
   vec <- gsub(" ", "", vec)
 
-  fixed  <- grep("^\\*", vec, value = TRUE)
-  fitted <- grep("^\\*", vec, value = TRUE, invert = TRUE)
+  # Fixed = a leading '*' OR an unstarred plain-number RHS. Bracket/distribution
+  # priors and name-expressions are non-numeric, so a bare number is the only
+  # unstarred form that lands here. A boolean mask over `vec` preserves sheet
+  # order and leaves existing '*'-only sheets parsed exactly as before.
+  rhs      <- sub("^[^=]*=", "", vec)
+  is_fixed <- grepl("^\\*", vec) | !is.na(suppressWarnings(as.numeric(rhs)))
+  fixed  <- vec[is_fixed]
+  fitted <- vec[!is_fixed]
 
-  # Fixed: *name=value (value may be numeric or an expression of other names).
-  fixed_final  <- setNames(sub("^\\*.*?=(.*)", "\\1", fixed),
-                           sub("^\\*(.*?)=.*",  "\\1", fixed))
+  # Fixed: [*]name=value. Strip an optional leading '*', then split on '='; the
+  # value may be numeric or (only when starred) an expression of other names.
+  fixed_bare   <- sub("^\\*", "", fixed)
+  fixed_final  <- setNames(sub("^[^=]*=", "", fixed_bare),
+                           sub("=.*",     "", fixed_bare))
   fixed_nonnum <- is.na(suppressWarnings(as.numeric(fixed_final)))
 
   # Fitted split: known-initial (name=[lo,hi]|init) vs without.

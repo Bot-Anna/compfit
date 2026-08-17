@@ -33,16 +33,26 @@ buildPriorSpec <- function(modelParams) {
     v <- col[col != "" & !is.na(col)]
     gsub(" ", "", v)
   }
-  
+
+  # Fixed = a leading '*' OR an unstarred plain-number RHS ('*' optional for
+  # numeric constants: `mu=0.01` == `*mu=0.01`). Mirrors .parse_entry_group().
+  is_fixed_entry <- function(v) {
+    rhs <- sub("^[^=]*=", "", v)
+    grepl("^\\*", v) | !is.na(suppressWarnings(as.numeric(rhs)))
+  }
+  entry_name  <- function(v) sub("=.*", "", sub("^\\*", "", v))
+  entry_value <- function(v) sub("^[^=]*=", "", sub("^\\*", "", v))
+
   ## ---- Parameters ----
   params_vector <- clean_col(modelParams$Parameters)
-  params_fixed_entries  <- grep("^\\*", params_vector, value = TRUE)
-  params_fitted_entries <- grep("^\\*", params_vector, value = TRUE, invert = TRUE)
-  
-  # Fixed parameters: name=value (value may be a number or an expression string,
-  # exactly as statesAndParams handles them). We keep them as-is.
-  pf_names  <- sub("^\\*(.*?)=.*", "\\1", params_fixed_entries)
-  pf_values <- sub("^\\*.*?=(.*)", "\\1", params_fixed_entries)
+  pfx <- is_fixed_entry(params_vector)
+  params_fixed_entries  <- params_vector[pfx]
+  params_fitted_entries <- params_vector[!pfx]
+
+  # Fixed parameters: [*]name=value (value may be a number or, when starred, an
+  # expression string, exactly as statesAndParams handles them). Kept as-is.
+  pf_names  <- entry_name(params_fixed_entries)
+  pf_values <- entry_value(params_fixed_entries)
   fixed_params <- setNames(pf_values, pf_names)
   
   # Fitted parameters: name=<prior-rhs>. parsePrior interprets the rhs.
@@ -63,11 +73,12 @@ buildPriorSpec <- function(modelParams) {
   
   ## ---- States ----
   states_vector <- clean_col(modelParams$States)
-  states_fixed_entries  <- grep("^\\*", states_vector, value = TRUE)
-  states_fitted_entries <- grep("^\\*", states_vector, value = TRUE, invert = TRUE)
-  
-  sf_names  <- sub("^\\*(.*?)=.*", "\\1", states_fixed_entries)
-  sf_values <- sub("^\\*.*?=(.*)", "\\1", states_fixed_entries)
+  sfx <- is_fixed_entry(states_vector)
+  states_fixed_entries  <- states_vector[sfx]
+  states_fitted_entries <- states_vector[!sfx]
+
+  sf_names  <- entry_name(states_fixed_entries)
+  sf_values <- entry_value(states_fixed_entries)
   fixed_states <- setNames(sf_values, sf_names)
   
   st <- states_fitted_entries[vapply(states_fitted_entries, is_prior_target, logical(1))]

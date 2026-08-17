@@ -100,6 +100,21 @@ grp <- compfit:::.parse_entry_group(c("*a=1", "b=[0,2]", "c=Normal(0,1)", "d=e*2
 chk(".parse_entry_group: fixed/prior/function split",
     identical(names(grp$fixed), "a") && all(c("b", "c") %in% grp$without_names) &&
       "d" %in% names(grp$functions))
+# '*' is optional for a numeric constant: a bare `mu=0.01` is FIXED (not a
+# function); an unstarred EXPRESSION (`s=x*y`) stays a function; '*' still fixes
+# an expression (`*p=a*b`). Order is preserved.
+grp2 <- compfit:::.parse_entry_group(c("mu=0.01", "*beta=2", "s=x*y", "*p=a*b", "q=[0,1]"))
+chk(".parse_entry_group: bare number -> fixed",       identical(unname(grp2$fixed[["mu"]]), "0.01"))
+chk(".parse_entry_group: bare number not a function", !("mu" %in% names(grp2$functions)))
+chk(".parse_entry_group: unstarred expr -> function", "s" %in% names(grp2$functions))
+chk(".parse_entry_group: starred expr -> fixed",      "p" %in% names(grp2$fixed) && grp2$fixed_nonnumeric[names(grp2$fixed) == "p"])
+chk(".parse_entry_group: bracket still fitted",        "q" %in% grp2$without_names)
+# buildPriorSpec (Bayesian reader) mirrors it: a bare-number fixed param must be
+# carried in fixed_params (previously it was dropped -- neither fixed nor prior).
+mp_bare <- mp_np; mp_bare$Parameters <- c("mu=0.01", "gamma=[0,1]")
+ps_bare <- compfit:::buildPriorSpec(mp_bare)
+chk("buildPriorSpec: bare number in fixed_params",  identical(unname(ps_bare$fixed_params[["mu"]]), "0.01"))
+chk("buildPriorSpec: bare number not fitted",       !("mu" %in% ps_bare$order$params_fitted))
 
 th_section("family registry constants")
 chk(".DISCRETE_FAMILIES", identical(.DISCRETE_FAMILIES, c("poisson","negbin")))
