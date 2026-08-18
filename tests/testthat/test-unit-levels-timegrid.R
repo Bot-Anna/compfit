@@ -75,6 +75,21 @@ m2  <- chk_ok("two-level model with cross-level Mixing builds",
 chk("Nw1 includes the out-of-level compartment X[3]",
     grepl("real Nw1 = X[1]+X[2]+(0.3)*X[3];", m2$model$stan_code, fixed = TRUE))
 
+th_section("Mixing weights follow the Level_ column, not the States position (interleaved levels)")
+# level 1 holds the NON-adjacent compartments {X1, X3}; X2 is a different level.
+# The weights must attach to X1 and X3 (the Level_1 rows), NOT to the States-order
+# neighbours X1,X2 -- that was the silent bug on a non-level-grouped ordering.
+mpI <- sc$modelParams
+mpI[["Level_1"]] <- c("1", "3", rep("", nrow(mpI) - 2))   # level 1 = {X1, X3}
+mpI <- add_col(mpI, "Level_2", c("2"))                    # level 2 = {X2}
+mpI <- add_col(mpI, "Mixing_1", c("1", "0.5"))            # X1 -> 1, X3 -> 0.5 (aligned to Level_1)
+mI  <- chk_ok("interleaved-membership Mixing model builds",
+              build_compartmental_model(mpI, sc$dataCombined, solver = solver_control(backend = "r")))
+chk("Nw1 weights the Level_1 compartments X[1], X[3]",
+    grepl("real Nw1 = X[1]+(0.5)*X[3];", mI$model$stan_code, fixed = TRUE))
+chk("Nw1 does NOT include the wrong-level X[2] (the old positional bug)",
+    !grepl("real Nw1 = X[1]+(0.5)*X[2]+X[3];", mI$model$stan_code, fixed = TRUE))
+
 th_section("Pool_<level>: the pool as a function of the level head counts")
 mpP <- sc$modelParams
 mpP[["Level_1"]] <- c("1", "2", rep("", nrow(mpP) - 2))   # level 1 = {X1, X2}

@@ -93,11 +93,13 @@ compartmentalFunction <- function(modelParams,
   # A level column `_<name>` may carry a companion that REPLACES the raw headcount
   # N<L> in the transmission (second-order) denominators for that level with a
   # weighted / custom "mixing pool" Nw<L>. Two mutually-exclusive forms:
-  #   * `Mixing_<name>` -- ONE weight per compartment (aligned to States order):
-  #     Nw<L> = sum_k w_kL * X[k]. A blank cell is the membership DEFAULT (1 if k
-  #     is in level L, else 0), so an absent / all-blank column reproduces N<L>
-  #     exactly. A non-zero weight on an out-of-level compartment pulls it into the
-  #     pool (commuting / contact-matrix mixing).
+  #   * `Mixing_<name>` -- one weight per compartment, aligned to the `Level_<name>`
+  #     column BY ROW: the weight in row i is for the compartment named in row i of
+  #     Level_<name>. A blank weight on an in-level compartment defaults to 1, so an
+  #     absent / all-blank column reproduces N<L> exactly. A weight in a row with NO
+  #     Level_<name> entry pulls the States-position compartment X[row] into the pool
+  #     (commuting / contact-matrix mixing). Robust to the States ordering (grouped
+  #     OR interleaved); the older row=X[k] alignment mis-weighted an interleaved order.
   #   * `Pool_<name>` -- ONE expression giving the whole pool as a function of the
   #     level head counts (N1..Nk, total_pop), parameters, Functions, and time,
   #     e.g. `N1 + c*N2/(1+N2/K)` (a saturating cross-level pool). Floored at a
@@ -136,13 +138,27 @@ compartmentalFunction <- function(modelParams,
       pv   <- pv[!is.na(pv) & nzchar(trimws(pv))]
       expr <- .names_to_slots(gsub(" ", "", trimws(pv[1])), comp_names)
       rhs  <- paste0("max((", expr, "), ", .NW_FLOOR, ")")   # positive floor guards /0
-    } else {                                             # Mixing_<name>: per-compartment weights
-      wcol  <- as.character(data_vals_coeffs[[mixing_cols[L]]])[seq_len(number_of_comps)]
-      terms <- character(0)
-      for (k in seq_len(number_of_comps)) {
-        w <- if (k <= length(wcol)) trimws(wcol[k]) else NA_character_
-        if (is.na(w) || !nzchar(w))                     # blank -> membership default
-          w <- if (k %in% level_compartments[[L]]) "1" else "0"
+    } else {                                             # Mixing_<name>: weights aligned to Level_<name>
+      # Each weight sits in the SAME ROW as its compartment's entry in the
+      # Level_<name> column (how the column is naturally written), so a blank
+      # in-level weight defaults to 1 and the pool is robust to the States
+      # ordering (grouped OR interleaved). A weight in a row that has NO Level
+      # entry pulls the States-position compartment X[row] into the pool
+      # (cross-level contact mixing). The old row=X[k] alignment silently
+      # mis-weighted an interleaved (non-level-grouped) States order.
+      lvlcol <- as.character(data_vals_coeffs[[compartment_cols[[L]]]])
+      mixcol <- as.character(data_vals_coeffs[[mixing_cols[L]]])
+      terms  <- character(0)
+      for (i in seq_len(max(length(lvlcol), length(mixcol)))) {
+        lv <- if (i <= length(lvlcol)) trimws(lvlcol[i]) else NA_character_
+        mw <- if (i <= length(mixcol)) trimws(mixcol[i]) else NA_character_
+        if (!is.na(lv) && nzchar(lv)) {                 # row lists an in-level compartment
+          k <- .comp_index(lv, comp_names)
+          w <- if (is.na(mw) || !nzchar(mw)) "1" else mw  # blank in-level weight -> 1
+        } else if (!is.na(mw) && nzchar(mw)) {          # weight, no Level entry -> pull in X[row]
+          k <- i; w <- mw
+        } else next
+        if (is.na(k) || k < 1L || k > number_of_comps) next
         w <- .names_to_slots(gsub(" ", "", w), comp_names)
         if (w == "0") next
         terms <- c(terms, if (w == "1") paste0("X[", k, "]")
