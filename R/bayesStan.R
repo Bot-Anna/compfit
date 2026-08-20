@@ -251,6 +251,39 @@ buildStanODEFunction <- function(sir_expression,
 
 
 # ------------------------------------------------------------
+# .derived_functions_to_stan: recompute the time-varying Functions referenced by
+# the observables as vectors over the solve grid, so a Formula like
+#   annual(f_R*(I_H+I_L))
+# resolves when f_R is a time-varying rate rather than a scalar parameter.
+# Mirrors .derived_functions_to_julia(). `obs_funs` is the named rhs vector from
+# .derived_observable_functions() (state-independent, dependency order): each gets
+# a `vector[n_grid]` declaration, then one loop fills them all so a Function
+# defined via helper Functions resolves (earlier names are already filled at
+# index g). Returns character(0) when nothing is referenced -- the generated Stan
+# is then unchanged, so existing bayes models are unaffected.
+.derived_functions_to_stan <- function(obs_funs, startpoint, cutoff) {
+  if (!length(obs_funs)) return(character(0))
+  nms  <- names(obs_funs)
+  body <- character(0)
+  for (nm in nms) {
+    rhs <- .r_to_stan(obs_funs[[nm]])
+    rhs <- gsub("\\bstartpoint\\b", as.character(startpoint), rhs)
+    if (!is.null(cutoff) && length(cutoff) == 1 && !is.na(cutoff))
+      rhs <- gsub("\\bcutoff\\b", as.character(cutoff), rhs)
+    # `time` is the grid point; earlier Functions are read at the same index.
+    rhs <- gsub("\\btime\\b", "tgrid[g]", rhs)
+    for (prev in nms[seq_len(match(nm, nms) - 1L)])
+      rhs <- gsub(paste0("\\b\\Q", prev, "\\E\\b"), paste0(prev, "[g]"), rhs, perl = TRUE)
+    body <- c(body, sprintf("    %s[g] = %s;", nm, rhs))
+  }
+  c("  // ---- time-varying Functions referenced by the observables ----",
+    sprintf("  vector[n_grid] %s;", nms),
+    "  for (g in 1:n_grid) {",
+    body,
+    "  }")
+}
+
+
 # .likelihood_to_stan: per-stream masked likelihood block.
 #   obs   -> lpdf/lpmf(y | ...);   left-censored -> lcdf(limit | ...);
 #   right-censored -> lccdf(llimit | ...);   missing -> skip.
@@ -338,7 +371,8 @@ buildStanModel <- function(prior_spec, like_specs, formulas, n_years, partition,
                            sigma_prior_stan = "normal(0, 1)",
                            phi_prior_stan   = "gamma(2, 0.2)",
                            ode_solver       = "rk45",
-                           init_fun_defs    = NULL) {
+                           init_fun_defs    = NULL,
+                           derived_spec     = NULL) {
   if (is.null(ode_function))
     stop("buildStanModel(): no Stan ODE was generated for this model.")
 
@@ -431,6 +465,16 @@ buildStanModel <- function(prior_spec, like_specs, formulas, n_years, partition,
     "  traj[, 1] = X0;",
     "  for (g in 2:n_grid) traj[, g] = sol_raw[g - 1];")
 
+  ## --- time-varying Functions referenced by the observables ---
+  # Emitted between the solve and the observables (they read `tgrid`), so a
+  # Formula may name a time-varying rate exactly as the R loss allows.
+  derivfun_lines <- .derived_functions_to_stan(
+    .derived_observable_functions(
+      derived_spec, formulas,
+      param_symbols = c(prior_spec$order$params_fitted, prior_spec$order$params_fixed)),
+    startpoint = if (!is.null(derived_spec)) derived_spec$startpoint else NULL,
+    cutoff     = if (!is.null(derived_spec)) derived_spec$cutoff     else NULL)
+
   ## --- observables ---
   obs_lines <- vapply(seq_along(formulas), function(i)
     sprintf("  vector[n_years] mu%d = %s;", i, .observable_to_stan(formulas[i], comp_names)),
@@ -510,7 +554,10 @@ buildStanModel <- function(prior_spec, like_specs, formulas, n_years, partition,
     join(def_lines),
     p_line,
     x_line,
-    join(solve_lines),
+    # Appended to solve_lines (not a separate paste arg) so an EMPTY derived-
+    # function block adds no stray blank line -- codegen for models that don't
+    # use the feature stays byte-identical.
+    join(c(solve_lines, derivfun_lines)),
     join(obs_lines),
     "}",
     "model {",
@@ -629,7 +676,8 @@ buildStanModel <- function(prior_spec, like_specs, formulas, n_years, partition,
                          sigma_prior_stan = bc$sigma_prior_stan %||% "normal(0, 1)",
                          phi_prior_stan   = bc$phi_prior_stan   %||% "gamma(2, 0.2)",
                          ode_solver       = ode_solver,
-                         init_fun_defs    = model$init_fun_defs)
+                         init_fun_defs    = model$init_fun_defs,
+                         derived_spec     = model$derived)
 
   # Compile (cached by program text; a ~1-2 min C++ build the first time) + sample.
   # progress = FALSE silences the sampler's per-iteration output, the chain

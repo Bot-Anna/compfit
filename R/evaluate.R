@@ -68,6 +68,46 @@
   spec
 }
 
+# ---- Observable-referenced Functions (Bayesian backends) -------------------
+# The Julia/Stan likelihoods evaluate each data-stream Formula on the solved
+# trajectory. A Formula may name a TIME-VARYING Function (e.g. observed
+# diagnoses = f_R_CH(t)*(R_H+R_L)), which is neither a state nor a scalar
+# parameter, so it must be recomputed as a vector over the solve grid.
+#
+# Returns the subset of `spec`'s Functions that (a) are state-INDEPENDENT (their
+# rhs uses only parameters/time -- the realistic case for time-varying rates, and
+# the only case a grid recompute can do without mapping state trajectories), and
+# (b) are reachable from `formulas`, following Function-to-Function references so
+# a rate defined via helper Functions still resolves. Declaration order is
+# preserved, so emitting them in order is well-defined. Empty when no observable
+# references a Function -- callers then emit nothing and behave exactly as before.
+.derived_observable_functions <- function(spec, formulas, param_symbols = character(0)) {
+  if (is.null(spec) || !length(spec$functions_raw)) return(setNames(character(0), character(0)))
+  state_syms <- unique(c(spec$comp_names,
+                         paste0("N", seq_along(spec$level_members)),
+                         if (length(spec$level_names)) paste0("N_", spec$level_names[nzchar(spec$level_names)]),
+                         "total_pop"))
+  cls <- .classify_functions(spec$functions_raw, state_syms, param_symbols)
+  indep <- cls$independent                      # named rhs vector, dependency order
+  if (!length(indep)) return(setNames(character(0), character(0)))
+
+  vars_of <- function(txt) {
+    txt <- gsub("^\\s*(annual|cumulative)\\((.*)\\)\\s*$", "\\2", gsub("`", "", txt))
+    tryCatch(all.vars(parse(text = txt)[[1]]), error = function(e) character(0))
+  }
+  # Seed with the names the observables mention, then close over Function refs.
+  need <- unique(unlist(lapply(formulas, vars_of)))
+  repeat {
+    hit <- intersect(names(indep), need)
+    extra <- unique(unlist(lapply(indep[hit], vars_of)))
+    new <- setdiff(intersect(extra, names(indep)), need)
+    if (!length(new)) break
+    need <- c(need, new)
+  }
+  keep <- names(indep) %in% need
+  indep[keep]
+}
+
 .derived_columns <- function(sir_out, parms, time, spec) {
   if (is.null(spec) || !length(spec$functions_raw) && !length(spec$level_members))
     return(NULL)

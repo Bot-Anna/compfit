@@ -845,7 +845,8 @@ bayes_control <- function(sampler    = "NUTS(0.65)",
     comp_names      = model$structure$comp_names,
     sigma_prior     = bc$sigma_prior,
     phi_prior       = bc$phi_prior,
-    init_fun_defs   = model$init_fun_defs
+    init_fun_defs   = model$init_fun_defs,
+    derived_spec    = model$derived
   )
   registerJuliaBayesModel(model_code)
 

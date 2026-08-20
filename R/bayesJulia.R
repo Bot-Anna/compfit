@@ -71,6 +71,44 @@
 
 
 # ------------------------------------------------------------
+# Emit the Julia block that recomputes time-varying Functions referenced by the
+# observables as VECTORS over the dense solve grid, so a Formula like
+#   annual(f_R_CH*(R_HighCH+R_LowCH) + f_C_CH*(C_HighCH+C_LowCH))
+# resolves when f_R_CH is a time-varying rate rather than a scalar parameter.
+#
+# `obs_funs` is the named rhs vector from .derived_observable_functions() (state-
+# independent, in dependency order). Each entry becomes one comprehension over
+# grid_t, with `time`/`t` bound to the grid point. Parameters are already bound as
+# scalars in the definitions block, so their bare names resolve inside it; earlier
+# Functions in the chain are recomputed locally within the same comprehension so a
+# rate defined via helper Functions works without indexing a vector.
+#
+# Returns character(0) when no observable references a Function -- the generated
+# model is then byte-identical to before, so existing bayes fits are unaffected.
+# NOTE: the comprehension is deliberately type-generic (no Float64 annotation) so
+# ForwardDiff Duals flow through under NUTS.
+.derived_functions_to_julia <- function(obs_funs, startpoint, cutoff) {
+  if (!length(obs_funs)) return(character(0))
+  inner <- character(0)
+  for (nm in names(obs_funs)) {
+    rhs <- r_to_julia(obs_funs[[nm]])
+    rhs <- gsub("\\bstartpoint\\b", as.character(startpoint), rhs)
+    if (!is.null(cutoff) && length(cutoff) == 1 && !is.na(cutoff))
+      rhs <- gsub("\\bcutoff\\b", as.character(cutoff), rhs)
+    inner <- c(inner, sprintf("            %s = %s", nm, rhs))
+  }
+  nms <- names(obs_funs)
+  c("    # ---- time-varying Functions referenced by the observables ----",
+    "    _derivfun_ = [ begin",
+    "            time = t_grid_; t = t_grid_",
+    inner,
+    sprintf("            (%s,)", paste(nms, collapse = ", ")),
+    "        end for t_grid_ in grid_t ]",
+    sprintf("    %s = [x_[%d] for x_ in _derivfun_]", nms, seq_along(nms)))
+}
+
+
+# ------------------------------------------------------------
 # Emit one Julia likelihood statement for a stream, given its family and the
 # Julia variable `mu_i` holding its predicted observable, `y_i` the data column,
 # and (optionally) a dispersion variable name.
@@ -180,7 +218,8 @@ buildJuliaBayesModel <- function(prior_spec,
                                  comp_names  = paste0("X", seq_len(number_of_comps)),
                                  sigma_prior = "truncated(Normal(0, 1), 0, Inf)",
                                  phi_prior   = "Gamma(2, 5)",
-                                 init_fun_defs = NULL) {
+                                 init_fun_defs = NULL,
+                                 derived_spec  = NULL) {
   
   ## --- Prior block: one ~ per estimated quantity, in ODE order ---
   # Map an R/parsePrior dist spec to a Julia Distributions.jl constructor.
@@ -335,6 +374,18 @@ buildJuliaBayesModel <- function(prior_spec,
   }
   x_line <- sprintf("    X0 = [%s]", paste(x_terms, collapse = ", "))
   
+  ## --- Time-varying Functions referenced by the observables ---
+  # Emitted between the solve and the observables so a Formula can name a
+  # time-varying rate (f_R_CH, q_CH, ...) exactly as the R loss allows. Empty
+  # (and thus byte-identical to the previous codegen) unless a Formula uses one.
+  obs_funs <- .derived_observable_functions(
+    derived_spec, formulas,
+    param_symbols = c(prior_spec$order$params_fitted, prior_spec$order$params_fixed))
+  derivfun_lines <- .derived_functions_to_julia(
+    obs_funs,
+    startpoint = if (!is.null(derived_spec)) derived_spec$startpoint else NULL,
+    cutoff     = if (!is.null(derived_spec)) derived_spec$cutoff     else NULL)
+
   ## --- Observable + likelihood blocks ---
   obs_lines  <- character(0)
   like_lines <- character(0)
@@ -387,6 +438,7 @@ buildJuliaBayesModel <- function(prior_spec,
     preamble,
     "    # ---- per-stream scale columns ----",
     scale_block,
+    join_block(derivfun_lines),
     "    # ---- observables ----",
     join_block(obs_lines),
     "    # ---- likelihood ----",
