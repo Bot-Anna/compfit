@@ -63,6 +63,7 @@
   "interval_mask", "ilow_mat", "iupp_mat", "idev_lo_mat", "idev_hi_mat",
   "asym_mask", "asym_val_mat", "asym_dev_mat", "asym_dir_mat",
   "time", "startpoint", "endpoint", "partition",
+  "derived_spec",
   "verbose",
   "checkpoint_file"
 )

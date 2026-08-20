@@ -1082,6 +1082,7 @@ build_compartmental_model <- function(modelParams, dataCombined = NULL,
   # touches the loss, and every tool that needs it (Sobol, fits) supplies data.
   loss_function <- if (length(dat$names_data_points) == 0) NULL else lossFunction(
     names_data_points         = dat$names_data_points,
+    derived_spec              = model$derived,
     parms_expression          = model$expressions$parms,
     initial_states_expression = model$expressions$initial_states,
     states_params_expression  = model$expressions$states_params,
@@ -1233,6 +1234,7 @@ fitCompartmentalModel <- function(modelParams,
   # --- 5. Loss function ---
   loss_function <- stash("loss_function", lossFunction(
     names_data_points         = dat$names_data_points,
+    derived_spec              = model$derived,
     parms_expression          = model$expressions$parms,
     initial_states_expression = model$expressions$initial_states,
     states_params_expression  = model$expressions$states_params,

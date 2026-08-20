@@ -45,6 +45,29 @@
 # level heads and startpoint/cutoff the generated model uses. `if_else`/`ifelse`
 # and friends resolve because the eval environment's parent is the package
 # namespace (where `if_else` lives).
+# Parse a vector of raw `name <- rhs` Function strings into (expr, lhs) pairs,
+# dropping anything that is not a valid assignment. Pure parsing -- no eval -- so
+# it is safe to do ONCE and reuse across trajectories.
+.derived_parse <- function(functions_raw) {
+  out <- list()
+  if (is.null(functions_raw)) return(out)
+  for (f in functions_raw) {
+    ex <- tryCatch(parse(text = f)[[1]], error = function(e) NULL)
+    if (is.null(ex) || !is.call(ex) || !as.character(ex[[1]]) %in% c("<-", "=")) next
+    out[[length(out) + 1L]] <- list(ex = ex, lhs = deparse(ex[[2]]))
+  }
+  out
+}
+
+# Attach pre-parsed Functions to a derived spec so the per-eval replay in the
+# loss never re-parses. Returns the spec augmented with `$parsed_functions`;
+# NULL passes through. Call once (e.g. at loss-closure build time).
+.derived_prepare <- function(spec) {
+  if (is.null(spec)) return(NULL)
+  spec$parsed_functions <- .derived_parse(spec$functions_raw)
+  spec
+}
+
 .derived_columns <- function(sir_out, parms, time, spec) {
   if (is.null(spec) || !length(spec$functions_raw) && !length(spec$level_members))
     return(NULL)
@@ -80,15 +103,18 @@
   assign("total_pop", total, envir = env)
 
   # Replay each Functions entry in declaration order; record its LHS name.
+  # Use pre-parsed (expr, lhs) pairs when the caller supplied a spec run through
+  # .derived_prepare() -- the loss does this once so the hot per-eval path never
+  # re-parses; the plotting path passes a raw spec and parses inline here.
+  parsed <- spec$parsed_functions
+  if (is.null(parsed)) parsed <- .derived_parse(spec$functions_raw)
   fn_nm <- character(0)
-  for (f in spec$functions_raw) {
-    ex <- tryCatch(parse(text = f)[[1]], error = function(e) NULL)
-    if (is.null(ex) || !is.call(ex) || !as.character(ex[[1]]) %in% c("<-", "=")) next
+  for (pf in parsed) {
     # Per-entry guard: a Function that references something the replay doesn't
     # reconstruct is skipped (as are its dependents) without losing the entries
     # that DID resolve, e.g. time-only ones like q_CH / the sigmoids.
-    ok <- tryCatch({ eval(ex, envir = env); TRUE }, error = function(e) FALSE)
-    if (ok) fn_nm <- c(fn_nm, deparse(ex[[2]]))
+    ok <- tryCatch({ eval(pf$ex, envir = env); TRUE }, error = function(e) FALSE)
+    if (ok) fn_nm <- c(fn_nm, pf$lhs)
   }
 
   # Assemble output: head counts + total_pop + Function results, as grid vectors

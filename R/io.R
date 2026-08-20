@@ -83,6 +83,7 @@ load_fit <- function(path) {
   # Rebuild the loss closure from the stored fit fields
   s$loss <- lossFunction(
     names_data_points         = s$data$names_data_points,
+    derived_spec              = s$model$derived,
     parms_expression          = s$model$expressions$parms,
     initial_states_expression = s$model$expressions$initial_states,
     states_params_expression  = s$model$expressions$states_params,

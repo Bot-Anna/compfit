@@ -27,6 +27,7 @@ lossFunction <- function(names_data_points,
                          lower_guesses,
                          upper_guesses,
                          comp_names = NULL,
+                         derived_spec = NULL,
                          verbose = TRUE,
                          solver  = "AutoTsit5(Rosenbrock23())",
                          abstol  = 1e-8,
@@ -35,6 +36,12 @@ lossFunction <- function(names_data_points,
                          checkpoint_file = "checkpoint_best_solution.rds"
 ) {
   
+  # Pre-parse the model's Functions ONCE so the per-eval derived-column replay in
+  # the loss closure below never re-parses (parse() is the hot-path cost). The
+  # closure captures the prepared spec via this same `derived_spec` binding, so
+  # extract_code inlines it unchanged.
+  if (!is.null(derived_spec)) derived_spec <- .derived_prepare(derived_spec)
+
   ## ---- Marker-based body insertion ----
   # Splices a parsed code block in place of a bare-symbol marker statement in
   # f's body. Parses ONLY code_str (never re-deparses the existing body), and
@@ -173,7 +180,23 @@ lossFunction <- function(names_data_points,
     # to the `parms` vector, so data formulas can be written as `g_HA*...`
     # instead of `parms["g_HA"]*...`. Both styles work (backward compatible).
     for (.nm in names(parms)) assign(.nm, parms[[.nm]])
-    
+
+    # Make the model's time-varying Functions (q_CH, f_R_CH, omega_*, p_*, ...)
+    # available as bare vectors over the solved trajectory, so data/observation
+    # formulas can reference them exactly as the ODE body does -- e.g. observed
+    # diagnoses = f_R(t)*(R_H+R_L) when f_R is a time-varying rate. Mirrors
+    # solve_and_evaluate()'s derived-column step. Robust: a replay failure (or a
+    # NULL spec, e.g. a legacy fit) leaves the previous behaviour intact (states +
+    # params only). States take precedence -- never overwrite a solution column.
+    if (!is.null(derived_spec)) {
+      .deriv <- tryCatch(
+        .derived_columns(sir_out_data, parms, sir_out_data$time, derived_spec),
+        error = function(e) NULL)
+      if (!is.null(.deriv))
+        for (.nm in names(.deriv))
+          if (!.nm %in% names(sir_out_data)) assign(.nm, .deriv[[.nm]])
+    }
+
     .ERROR_PLACEHOLDER.
     
     # Build the residual with censoring/missing handling:
