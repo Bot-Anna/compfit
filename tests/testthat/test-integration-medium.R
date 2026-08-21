@@ -54,5 +54,20 @@ chk("precedence message emitted", saw_msg)
 chk("shared-formula panel is the fitted one (not the dummy)",
     !identical(res2$plots[[s1]]$labels$title, paste(s1, "(dummy)")))
 
+# Every panel carries the SAME date scale. Dummy panels used to set no
+# scale_x_date at all and inherited ggplot's default, so they disagreed with the
+# fitted panels on both tick positions and label format.
+th_section("shared x-axis scale across fitted and dummy panels")
+x_breaks <- function(p) {
+  b <- NULL
+  for (s in p$scales$scales) if (any(c("x", "date") %in% s$aesthetics)) b <- s$breaks
+  b
+}
+all_b <- lapply(res$plots, x_breaks)
+chk("no panel falls back to the default x scale",
+    !any(vapply(all_b, is.null, logical(1))))
+chk("all panels share identical date breaks",
+    all(vapply(all_b, function(b) identical(b, all_b[[1]]), logical(1))))
+
 th_summary(LBL)
 })

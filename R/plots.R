@@ -101,6 +101,27 @@ cfit_theme <- function(base_size = 11) {
     )
 }
 
+# ---- Shared x-axis scale ---------------------------------------------------
+# Every panel in a plot_fit() grid must carry the SAME date scale, otherwise
+# fitted panels (which set one) and dummy panels (which used to inherit
+# ggplot's default) disagree on both tick positions and label format -- the
+# default scale can render a full "01.01.2024" where the fitted panels show a
+# bare "2024". Breaks are anchored on the observation dates (the 12-31
+# snapshots), not the solve grid, which starts a year earlier at
+# `startpoint - 1` to carry the initial condition.
+.cfit_date_scale <- function(dates) {
+  dates <- dates[!is.na(dates)]
+  if (!length(dates)) return(NULL)              # nothing to anchor on
+  # Adaptive x-axis: pick a year step so there are ~6-8 date labels regardless
+  # of horizon (avoids a wall of labels on long spans).
+  yrs  <- as.numeric(format(range(dates), "%Y"))
+  span <- diff(yrs)
+  step <- if (span <= 8) 1 else if (span <= 16) 2 else if (span <= 30) 5 else 10
+  brks <- seq(as.Date(sprintf("%d-12-31", yrs[1])),
+              as.Date(sprintf("%d-12-31", yrs[2])), by = paste(step, "years"))
+  ggplot2::scale_x_date(breaks = brks, date_labels = "%Y")
+}
+
 # ---- Single-stream plot builder (this source is returned as $code) ---------
 # Kept deliberately self-contained and readable: it is the "recipe" users edit.
 .cfit_stream_plot <- function(stream, label, data_points, model_eval,
@@ -213,16 +234,8 @@ cfit_theme <- function(base_size = 11) {
         colour = pal$censor, size = 1.4, na.rm = TRUE)               # grey dot at A
   }
 
-  # Adaptive x-axis: pick a year step so there are ~6-8 date labels regardless
-  # of horizon (avoids a wall of labels on long spans).
-  yrs <- as.numeric(format(range(data_points$date, na.rm = TRUE), "%Y"))
-  span <- diff(yrs)
-  step <- if (span <= 8) 1 else if (span <= 16) 2 else if (span <= 30) 5 else 10
-  brks <- seq(as.Date(sprintf("%d-12-31", yrs[1])),
-              as.Date(sprintf("%d-12-31", yrs[2])), by = paste(step, "years"))
-  
   p +
-    ggplot2::scale_x_date(breaks = brks, date_labels = "%Y") +
+    .cfit_date_scale(data_points$date) +
     ggplot2::scale_y_continuous(
       n.breaks = 5,
       labels = function(v) format(v, big.mark = ",", scientific = FALSE,
@@ -704,6 +717,9 @@ plot_fit <- function(fit, bands = TRUE,
         ggplot2::geom_line(data = model_eval,
                            ggplot2::aes(x = date, y = .data[[st]]),
                            colour = pal$dummy, linewidth = 0.7) +
+        # Same date scale as the fitted panels: without it these inherit
+        # ggplot's default and disagree on tick positions AND label format.
+        .cfit_date_scale(data_points$date) +
         ggplot2::labs(title = lab, x = NULL, y = NULL) +
         cfit_theme(base_size)
     }
@@ -735,6 +751,8 @@ plot_fit <- function(fit, bands = TRUE,
     "# Palette and theme (the palette used for this plot):",
     paste("cfit_palette <-", paste(deparse(pal), collapse = "\n")),
     paste(deparse(cfit_theme), collapse = "\n"),
+    "# Shared date scale (every panel uses this, fitted and dummy alike):",
+    paste(".cfit_date_scale <-", paste(deparse(.cfit_date_scale), collapse = "\n")),
     "# Per-stream builder (edit colours, geoms, theme here):",
     paste(deparse(.cfit_stream_plot), collapse = "\n"),
     "# Example: rebuild one panel (pass pal = cfit_palette to keep this scheme)",
