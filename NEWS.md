@@ -1,5 +1,22 @@
 # compfit (development version)
 
+## New features
+
+* **`dataCombined` accepts an `Asym` column.** `A+`/`A-` asymmetric data cells
+  need a deviation, which previously had to be smuggled into the `Likelihood`
+  column as `family; asym=<number>`. That overloaded a column named for the
+  observation family with a penalty parameter, and it was read even under
+  `method="mle"`, where the family token beside it is ignored. Put the number in
+  its own `Asym` column instead: one positive value per stream. Precedence is a
+  per-cell `A->B` deviation, then `Asym`, then the `asym=` clause -- still
+  honoured so existing sheets keep building, but no longer the documented form.
+  The value is a **ratio of penalty slopes**, not a distance: `1` is symmetric,
+  and `3` means a unit on the soft side costs a third of a unit on the hard
+  side. Being a ratio, one value is right for a whole stream whatever its level.
+  The metadata column names now live in a single `.DATA_META_COLS` constant, so
+  a new meta column cannot be added in one place and forgotten in another (which
+  would silently parse it as a year of observations).
+
 ## Breaking changes
 
 * **Level columns are now `Level_<id>`, not `_`-prefixed.** A level (mixing

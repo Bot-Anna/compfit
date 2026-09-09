@@ -371,6 +371,12 @@ bayes_control <- function(sampler    = "NUTS(0.65)",
   )
 }
 
+# Metadata columns of dataCombined: every OTHER column is a per-year data column.
+# Kept in one place so a newly added meta column cannot be listed in one spot and
+# forgotten in another -- a meta column missing from this vector would silently be
+# parsed as a year of observations.
+.DATA_META_COLS <- c("Label", "Formula", "Likelihood", "Weight", "Average", "Asym")
+
 .prepare_data <- function(dataCombined, tg) {
   # No data -> simulation mode: return the zero-stream bundle. A NULL frame or a
   # frame with no rows both count as "no streams"; a non-empty frame without a
@@ -412,7 +418,7 @@ bayes_control <- function(sampler    = "NUTS(0.65)",
     num
   }
   n_str    <- nrow(data_combined)
-  meta_lab <- c("Label", "Formula", "Likelihood", "Weight", "Average")
+  meta_lab <- .DATA_META_COLS
 
   # Held-out initial-year column (optional): a data column named `startpoint - 1`
   # (the initial-condition year) is NOT fitted -- t = 0 is the given initial state,
@@ -515,7 +521,7 @@ bayes_control <- function(sampler    = "NUTS(0.65)",
   # remaining columns are per-year data. This is robust to column reordering and
   # to extra meta columns.
   all_names   <- names(data_combined)
-  meta_labels <- c("Label", "Formula", "Likelihood", "Weight", "Average")
+  meta_labels <- .DATA_META_COLS
   meta_cols   <- intersect(meta_labels, all_names)
   value_cols  <- setdiff(all_names, meta_cols)
 
@@ -566,10 +572,29 @@ bayes_control <- function(sampler    = "NUTS(0.65)",
   adev_mat  <- matrix(NA_real_, n_streams, n_years)
   adir_mat  <- matrix(NA_real_, n_streams, n_years)
 
-  # Per-stream global asymmetric deviation (from the Likelihood column), used to
-  # resolve A+/A- cells that don't carry their own deviation.
-  stream_asym_dev <- if (is.null(likelihood_raw)) rep(NA_real_, n_streams) else
+  # Per-stream asymmetric deviation, used to resolve A+/A- cells that do not carry
+  # their own. `dev` is a dimensionless RATIO OF PENALTY SLOPES -- k units on the
+  # hard side cost as much as k*dev on the soft side -- so a single value is right
+  # for a whole stream whatever its level.
+  #
+  # Precedence: the dedicated `Asym` column, then the deprecated `asym=` clause of
+  # the Likelihood column. The clause is still honoured so existing sheets keep
+  # building, but Asym is preferred: a penalty scale is not a likelihood, and the
+  # clause was read even under MLE, where the family token it sits next to is
+  # ignored.
+  asym_from_lik <- if (is.null(likelihood_raw)) rep(NA_real_, n_streams) else
     vapply(likelihood_raw, function(x) parseLikelihood(x)$asym_dev, numeric(1))
+  asym_from_col <- if ("Asym" %in% names(data_combined))
+    as_numeric_col(data_combined$Asym, "Asym") else rep(NA_real_, n_streams)
+  bad_asym <- which(!is.na(asym_from_col) & asym_from_col <= 0)
+  if (length(bad_asym))
+    stop(sprintf(
+      paste0("dataCombined 'Asym' must be a positive number -- it is a ratio of ",
+             "penalty slopes, so 1 means symmetric and larger means more ",
+             "tolerant on the soft side. Found %s in row(s) %s."),
+      paste(asym_from_col[bad_asym], collapse = ", "),
+      paste(bad_asym, collapse = ", ")), call. = FALSE)
+  stream_asym_dev <- ifelse(is.na(asym_from_col), asym_from_lik, asym_from_col)
 
   for (r in seq_len(n_streams)) {
     for (cc in seq_len(n_years)) {
@@ -594,11 +619,12 @@ bayes_control <- function(sampler    = "NUTS(0.65)",
         if (is.na(dev)) dev <- stream_asym_dev[r]      # global deviation fallback
         if (is.na(dev))
           stop(sprintf(
-            "Stream '%s' cell '%s' uses an A+/A- asymmetric value but its ",
+            "Stream '%s' cell '%s' uses an A+/A- asymmetric value but no ",
             formulas[r], as.character(raw_cell)),
-            "Likelihood column declares no 'asym=' deviation. Add e.g. ",
-            "'; asym=<number>' to that stream's Likelihood, or use the ",
-            "explicit 'A->B' form.", call. = FALSE)
+            "asymmetric deviation is declared for that stream. Add an 'Asym' ",
+            "column to dataCombined holding a positive number (the ratio of ",
+            "penalty slopes: 1 = symmetric, 3 = the soft side costs a third as ",
+            "much per unit), or use the explicit 'A->B' form.", call. = FALSE)
         asym_mat[r, cc] <- 1L; aval_mat[r, cc] <- pc$value
         adev_mat[r, cc] <- dev; adir_mat[r, cc] <- pc$dir
       } # missing: leave all defaults
