@@ -194,6 +194,117 @@ if_else <- function(condition, true, false, ...) ifelse(condition, true, false)
        dependent   = setdiff(nm, indep))
 }
 
+# The Functions column is emitted into the generated ODE body verbatim, as a
+# straight-line assignment block (compartmentalFunction()), and replayed the same
+# way by .derived_columns(). Both therefore require every entry to appear AFTER
+# the entries it references -- otherwise Julia raises UndefVarError, and the
+# replay silently skips the entry and everything downstream of it.
+#
+# Sheet row order is not a good way to express that: the user writes definitions
+# where they are convenient. `.function_order()` recovers a valid order from the
+# reference graph instead, so row order carries no meaning.
+#
+# The ordering constraint is exactly a DAG condition, so a valid order exists iff
+# there is no cycle. Returns the permutation plus whatever makes one impossible:
+#   duplicates  a name defined more than once -- which definition a later entry
+#               refers to would depend on row order, the thing we are removing
+#   self        `x <- f(x)` -- a Function is a definition, not an update
+#   cycle       mutually referencing entries, as a concrete a -> b -> a path
+# Callers turn these into errors (validate_modelParams(), and .order_functions()
+# for the path where validation is switched off).
+#
+# The sort is STABLE: one node at a time, always the lowest-index ready entry. A
+# sheet already in a valid order is therefore returned unchanged, so generated
+# code and `$code` recipes stay byte-identical for every sheet that works today.
+.function_order <- function(functions_raw) {
+  fr <- as.character(functions_raw)
+  fr <- fr[!is.na(fr) & nzchar(trimws(fr))]
+  n  <- length(fr)
+  none <- list(order = seq_len(n), duplicates = character(0),
+               self = character(0), cycle = character(0))
+  if (n < 1L) return(none)
+
+  nm  <- sub("^\\s*([A-Za-z.][A-Za-z0-9_.]*)\\s*(<-|=).*$", "\\1", fr)
+  rhs <- sub("^\\s*[A-Za-z.][A-Za-z0-9_.]*\\s*(<-|=)\\s*", "", fr)
+  refs <- lapply(rhs, function(e)
+    unique(tryCatch(all.vars(parse(text = e)[[1]]), error = function(err) character(0))))
+
+  duplicates <- unique(nm[duplicated(nm)])
+  self <- unique(nm[vapply(seq_len(n), function(i) nm[i] %in% refs[[i]], logical(1))])
+  # A duplicate name makes `deps` ambiguous and a self-reference is a 1-cycle that
+  # would swallow the rest of its component, so report those alone -- the cycle
+  # walk below would only produce noise on top of them.
+  if (length(duplicates) || length(self))
+    return(list(order = seq_len(n), duplicates = duplicates, self = self,
+                cycle = character(0)))
+
+  # Edges run between Function names only: parameters, states, N<level> and the
+  # grid symbols are assigned outside this block and constrain nothing.
+  deps <- lapply(seq_len(n), function(i) intersect(refs[[i]], nm))
+
+  placed <- character(0); ord <- integer(0); left <- seq_len(n)
+  repeat {
+    ready <- NULL
+    for (i in left) if (all(deps[[i]] %in% placed)) { ready <- i; break }
+    if (is.null(ready)) break
+    ord    <- c(ord, ready)
+    placed <- c(placed, nm[ready])
+    left   <- left[left != ready]
+  }
+  if (!length(left)) return(list(order = ord, duplicates = character(0),
+                                 self = character(0), cycle = character(0)))
+
+  # Something is unplaceable: walk the unplaced sub-graph until a node repeats.
+  # The repeat closes a cycle; drop the tail that merely led into it, so the
+  # message names the loop itself rather than every entry downstream of it.
+  path <- integer(0); cur <- left[1]
+  repeat {
+    if (cur %in% path) { path <- path[which(path == cur)[1]:length(path)]; break }
+    path <- c(path, cur)
+    nxt  <- intersect(match(deps[[cur]], nm), left)
+    if (!length(nxt)) break
+    cur  <- nxt[1]
+  }
+  list(order = c(ord, left), duplicates = character(0), self = character(0),
+       cycle = nm[path])
+}
+
+# Shared wording for the three fatal Functions-ordering faults, so
+# validate_modelParams() and .order_functions() report a fault identically.
+.function_order_errors <- function(iss) {
+  e <- character(0)
+  if (length(iss$duplicates))
+    e <- c(e, sprintf(paste0("Functions column: %s defined more than once -- each ",
+                             "Function must have exactly one definition, otherwise ",
+                             "which one a reference picks up depends on row order. ",
+                             "Rename or remove the duplicate."),
+                      paste(sQuote(iss$duplicates), collapse = ", ")))
+  if (length(iss$self))
+    e <- c(e, sprintf(paste0("Functions column: %s reference(s) its own name on the ",
+                             "right-hand side -- a Function is a definition, not an ",
+                             "update, so there is no earlier value to read. Give the ",
+                             "result a new name."),
+                      paste(sQuote(iss$self), collapse = ", ")))
+  if (length(iss$cycle))
+    e <- c(e, sprintf(paste0("Functions column: circular definition %s -- these ",
+                             "entries depend on each other, so no evaluation order ",
+                             "exists. Break the loop."),
+                      paste(sQuote(c(iss$cycle, iss$cycle[1])), collapse = " -> ")))
+  e
+}
+
+# Reorder the Functions column into a valid evaluation order, or stop(). Used by
+# compartmentalFunction(); validate_modelParams() reports the same faults earlier
+# and more gently, but it can be switched off (options(compfit.validate = FALSE)),
+# and generating a model that cannot run is worse than a hard stop here.
+.order_functions <- function(functions_raw) {
+  iss  <- .function_order(functions_raw)
+  errs <- .function_order_errors(iss)
+  if (length(errs))
+    stop("Invalid modelParams:\n  - ", paste(errs, collapse = "\n  - "), call. = FALSE)
+  iss$order
+}
+
 # Turn the state-independent Functions into `<name>_0 <- <rhs>` lines evaluated
 # in the initial-state (`_0`) scope: rewrite every parameter / independent-Function
 # name to its `_0` alias, `time` to the init time (-1), and `startpoint`/`cutoff`

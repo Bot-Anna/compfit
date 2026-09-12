@@ -2,6 +2,25 @@
 
 ## New features
 
+* **The `Functions` column is sorted into dependency order.** Functions were
+  emitted into the generated ODE verbatim, in sheet row order, and the block is
+  straight-line code -- so defining a Function below something that uses it
+  failed. On the Julia backend that surfaced as `UndefVarError`; in the
+  `.derived_columns()` replay it was worse, because a failing entry is skipped
+  by design, so the Function and everything downstream of it silently vanished
+  from plots and data formulas. Row order now carries no meaning: the order is
+  recovered from the reference graph instead, once, feeding the generated ODE
+  and the replay alike, so all three backends agree. The sort is stable -- a
+  sheet already in a valid order generates byte-identical code -- and permuting
+  the column leaves the model numerically unchanged.
+
+  Three faults cannot be fixed by reordering and are now rejected by
+  `validate_modelParams()`, before any backend runs: a name **defined more than
+  once** (which definition a reference picks up would depend on row order), a
+  **self-reference** (`x <- x + 1` -- a Function is a definition, not an update),
+  and a **reference cycle**, reported as the loop it forms (`'a' -> 'b' -> 'a'`)
+  rather than as the full set of entries that could not be placed.
+
 * **`dataCombined` accepts an `Asym` column.** `A+`/`A-` asymmetric data cells
   need a deviation, which previously had to be smuggled into the `Likelihood`
   column as `family; asym=<number>`. That overloaded a column named for the

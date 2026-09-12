@@ -43,7 +43,14 @@ the column/cell and what is wrong. Checks:
     \code{_<level>} index column (\code{Mixing} holds non-negative per-compartment
     weights; \code{Pool} holds a single pool expression, and the two are mutually
     exclusive for a level);
-  \item \code{Others} has numeric \code{startpoint}/\code{endpoint}/\code{partition}.
+  \item \code{Others} has numeric \code{startpoint}/\code{endpoint}/\code{partition};
+  \item the \code{Functions} column can be put in a working evaluation order.
+    Row order itself does not matter -- a Function may be written above the
+    entries it references, and the builder sorts the column into dependency
+    order -- but a name \strong{defined more than once}, a
+    \strong{self-reference} (\code{x <- x + 1}; a Function is a definition, not
+    an update), and a \strong{reference cycle} have no valid order and are
+    rejected, the cycle reported as the loop it forms.
 }
 }
 \examples{

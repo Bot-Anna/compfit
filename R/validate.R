@@ -47,7 +47,14 @@
 #'     \code{_<level>} index column (\code{Mixing} holds non-negative per-compartment
 #'     weights; \code{Pool} holds a single pool expression, and the two are mutually
 #'     exclusive for a level);
-#'   \item \code{Others} has numeric \code{startpoint}/\code{endpoint}/\code{partition}.
+#'   \item \code{Others} has numeric \code{startpoint}/\code{endpoint}/\code{partition};
+#'   \item the \code{Functions} column can be put in a working evaluation order.
+#'     Row order itself does not matter -- a Function may be written above the
+#'     entries it references, and the builder sorts the column into dependency
+#'     order -- but a name \strong{defined more than once}, a
+#'     \strong{self-reference} (\code{x <- x + 1}; a Function is a definition, not
+#'     an update), and a \strong{reference cycle} have no valid order and are
+#'     rejected, the cycle reported as the loop it forms.
 #' }
 #'
 #' @param modelParams The model-parameter data frame (as read by
@@ -270,6 +277,11 @@ validate_modelParams <- function(modelParams) {
   }
   ## ---- Functions ----
   for (f in Fn) check_expr(sub("^[^<]*<-", "", f), sprintf("Functions cell '%s'", f))
+  # Functions are reordered into dependency order before codegen, so writing one
+  # above the entries it uses is fine. What CANNOT be resolved by reordering is a
+  # duplicate definition, a self-reference, or a reference cycle -- reported here
+  # so they surface with the rest of the sheet errors, before any backend runs.
+  for (e in .function_order_errors(.function_order(Fn))) add("%s", e)
   ## ---- Conditions ---- (comparators replaced so the expression parses)
   if ("Conditions" %in% names(modelParams))
     for (cnd in nz(modelParams$Conditions))

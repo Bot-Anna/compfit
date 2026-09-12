@@ -411,9 +411,16 @@ compartmentalFunction <- function(modelParams,
   vec_main[!nzchar(trimws(vec_main))] <- "0"
   
   ## ---- Builds all additional functions for the SIR model ----
-  functions_vector <- data_vals_coeffs$Functions
-  functions_vector <- functions_vector[functions_vector != "" & 
-                                         !is.na(functions_vector)]
+  # Sorted into dependency order first: the block below is emitted as straight-
+  # line code, so an entry must follow everything it references. Row order in the
+  # sheet carries no meaning -- see .function_order(). The SAME ordered vector
+  # feeds `derived_spec$functions_raw` further down, so the generated ODE and the
+  # replay in .derived_columns() agree.
+  functions_all <- as.character(data_vals_coeffs$Functions)
+  functions_all <- functions_all[!is.na(functions_all) & nzchar(trimws(functions_all))]
+  functions_all <- functions_all[.order_functions(functions_all)]
+
+  functions_vector <- functions_all
   functions_vector <- gsub(" ", "", functions_vector)
   functions_vector <- gsub("<-", "=", functions_vector, fixed = TRUE)
   # Rewrite STATE NAMES to X[k] in each entry's RHS (the LHS is the new variable's
@@ -561,9 +568,7 @@ compartmentalFunction <- function(modelParams,
   # against the named state columns. `level_members`/`level_names`/`startpoint`/
   # `cutoff` mirror exactly what the generated ODE uses, so the replay agrees with
   # the solve.
-  functions_raw <- data_vals_coeffs$Functions
-  functions_raw <- as.character(functions_raw[!is.na(functions_raw) &
-                                                trimws(as.character(functions_raw)) != ""])
+  functions_raw <- functions_all          # already in dependency order (see above)
   derived_spec <- list(
     functions_raw = functions_raw,
     level_members = level_compartments,   # list of integer index vectors
