@@ -33,11 +33,11 @@ A data frame.
 f <- system.file("extdata", "minimal", "modelParams.csv", package = "compfit")
 read_data_file(f, text_cols = TRUE)
 #> # A tibble: 4 × 10
-#>   `_Level1` Others     States Functions Parameters Conditions Linear1 Quadratic1
-#>   <chr>     <chr>      <chr>  <chr>     <chr>      <chr>      <chr>   <chr>     
-#> 1 1         startpoin… X1=[5… NA        k=[0,1]    NA         -k      0         
-#> 2 2         endpoint=… *X2=0  NA        m=[0,1]    NA         0       0         
-#> 3 NA        partition… NA     NA        NA         NA         NA      0         
-#> 4 NA        cutoff=20… NA     NA        NA         NA         NA      0         
+#>   Level_1 Others       States Functions Parameters Conditions Linear1 Quadratic1
+#>   <chr>   <chr>        <chr>  <chr>     <chr>      <chr>      <chr>   <chr>     
+#> 1 1       startpoint=… X1=[5… NA        k=[0,1]    NA         -k      0         
+#> 2 2       endpoint=20… *X2=0  NA        m=[0,1]    NA         0       0         
+#> 3 NA      partition=4  NA     NA        NA         NA         NA      0         
+#> 4 NA      cutoff=2015  NA     NA        NA         NA         NA      0         
 #> # ℹ 2 more variables: Linear2 <chr>, Quadratic2 <chr>
 ```

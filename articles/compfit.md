@@ -175,21 +175,54 @@ The model sheet uses column groups:
   Use it for an inflow that does not depend on any state, such as a
   constant birth or immigration rate, which cannot be written as a
   `Linear` (`*X[j]`) or `Quadratic` (`*X[i]*X[j]`) term. A cell may be a
-  number, a parameter name, an expression of parameters, or a
-  `$`-prefixed time-function (`$1000*exp(-0.1*time)`) – the same grammar
-  as a `Linear` coefficient, minus the `*X[j]`. A blank cell or an
-  absent column is zero.
+  number, a parameter name, or an expression of parameters – the same
+  grammar as a `Linear` coefficient, minus the `*X[j]`; for a
+  time-varying value, define it in `Functions` and reference it here by
+  name. A blank cell or an absent column is zero.
 - **`Others`**: the time grid, with `startpoint`, `endpoint`,
   `partition`, and an optional `cutoff`. The axis is annual (integer
   years), and by convention the initial state sits at `startpoint - 1`.
-- **`Functions`** (optional): time-varying helpers, for example
-  `gamma_t<-gamma*(1+ramp*time)`.
+  `dataCombined` may carry a column for that initial year
+  (`startpoint - 1`); it is not fitted (t = 0 is the given initial
+  state, not a snapshot) but is drawn on
+  [`plot_fit()`](../reference/plot_fit.md) as an open marker for
+  context.
+- **`Functions`** (optional): named helpers, for example a time-varying
+  rate `gamma_t<-gamma*(1+ramp*time)`. Expressions may reference
+  **compartments by name** (e.g. `prev<-I/(S+I+R)`), the level head
+  counts `N<level>`/`total_pop`, parameters, and `time`; compartment
+  names are rewritten to their state slot. The same holds for any
+  `Linear`/`Quadratic`/`Constant`/`Pool_` coefficient (a
+  parameter/function may not share a compartment’s name).
 - **`Conditions`** (optional): constraints turned into a fitting
   penalty, for example `beta>gamma`.
-- **`_Level<j>`** (optional): which compartments share a mixing
-  population (age, sex, region). The name after `_` is up to you
-  (`_Level1`, `_Age1`, and so on), and cells take a compartment number
-  or name. Leave it out and all compartments form a single population.
+- **`Level_<id>`** (optional): which compartments share a mixing
+  population (age, sex, region). The id after `Level_` is up to you
+  (`Level_1`, `Level_LA`, `Level_Age1`, and so on), and cells take a
+  compartment number or name. Leave it out and all compartments form a
+  single population. Each level’s head count is available in expressions
+  as `N<i>` (by position) and as `N_<id>` (by the level’s id,
+  e.g. `Level_Age1` → `N_Age1`).
+- **`Mixing_<id>`** (optional): a companion to a `Level_<id>` column,
+  named `Mixing_` plus the level’s id (`Mixing_1`, `Mixing_Age1`). It
+  holds one weight per compartment defining that level’s *effective*
+  mixing pool – the denominator `Nw = sum_k w_k X[k]` that normalises
+  the transmission terms for that level, in place of the raw head count.
+  A blank cell is the membership default (1 if the compartment is in the
+  level, else 0), so an absent or all-blank column reproduces the plain
+  head count. A non-zero weight on a compartment from *another* level
+  pulls it into this level’s pool (commuting / contact-matrix mixing).
+  Weights follow the coefficient grammar (number, parameter, or
+  expression); the raw `N` and `total_pop` are left unchanged.
+- **`Pool_<id>`** (optional): the alternative to `Mixing_<id>` when the
+  pool is not a simple weighted sum but a *function of the level
+  populations*. A single expression in the level head counts `N1 … Nk` /
+  `total_pop` (plus parameters, `Functions`, and `time`) that becomes
+  the whole denominator for that level, for example
+  `N1 + c*N2/(1 + N2/K)` (a saturating cross-level pool). It is floored
+  at a small positive value to guard against divide-by-zero, so keep the
+  expression strictly positive over the time span. A level uses
+  **either** `Mixing_<id>` or `Pool_<id>`, not both.
 
 > **Reserved names.** A Bayesian fit uses `sigma` (the Gaussian or
 > log-normal noise scale) and `phi`/`phi<i>` (negbin dispersion) as its

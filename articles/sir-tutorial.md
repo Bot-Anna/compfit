@@ -273,22 +273,22 @@ Lastly, **Others** is a required column. One has to provide:
 
 #### Optional
 
-- \_Level\<i\>
+- Level\_\<id\>
 - Functions
 - Conditions
 
-| \_Level1 | Functions                       | Conditions  |
-|:---------|:--------------------------------|:------------|
-| 1        | gamma_t\<-gamma\*(1+ramp\*time) | beta\>gamma |
-| 2        |                                 |             |
-| 3        |                                 |             |
+| Level_1 | Functions                       | Conditions  |
+|:--------|:--------------------------------|:------------|
+| 1       | gamma_t\<-gamma\*(1+ramp\*time) | beta\>gamma |
+| 2       |                                 |             |
+| 3       |                                 |             |
 
-**\_Level1** in our example is optional (but the underscore before the
-name isn’t!), and it encodes which compartment belongs to which
-sublevel. A typical sublevel divison would be by age, or by biological
-sex, if there is no uniform mixing. So if we had 2 levels, one would
-need to specify to which \_Level1 or \_Level2 a compartment belongs,
-either by its corresponding number or by its name.
+**Level_1** in our example is optional (but the `Level_` prefix isn’t!),
+and it encodes which compartment belongs to which sublevel. A typical
+sublevel divison would be by age, or by biological sex, if there is no
+uniform mixing. So if we had 2 levels, one would need to specify to
+which Level_1 or Level_2 a compartment belongs, either by its
+corresponding number or by its name.
 
 We already implicated how **Functions** is used: and indeed, the gamma_t
 is used in the model structure equations. The way gamma_t is entered is

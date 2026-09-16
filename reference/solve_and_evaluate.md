@@ -8,7 +8,13 @@ the \`fit\` object.
 ## Usage
 
 ``` r
-solve_and_evaluate(fit, initial_state, parms, data_dummy = NULL)
+solve_and_evaluate(
+  fit,
+  initial_state,
+  parms,
+  data_dummy = NULL,
+  endpoint = NULL
+)
 ```
 
 ## Arguments
@@ -30,6 +36,15 @@ solve_and_evaluate(fit, initial_state, parms, data_dummy = NULL)
   Optional dummy-data data frame; \`NULL\` evaluates only the data
   streams.
 
+- endpoint:
+
+  Optional end year. Extends the solve beyond the fitted horizon to
+  project forward; \`NULL\` (default) uses the fitted endpoint. Must be
+  a whole year at or after the fitted endpoint. The years the two runs
+  share are unchanged. Note that time-varying \`Functions\` keep
+  applying past the data, so the projection is only as meaningful as
+  those formulas are outside the fitted window.
+
 ## Value
 
 A list with \`sir_out\` (trajectory) and \`evaluation\` (formula
@@ -39,9 +54,13 @@ columns).
 
 ``` r
 if (FALSE) { # \dontrun{
-# fit from fitCompartmentalModel(); evaluate at the fitted point
-p  <- get_point(fit)
+# fit from fitCompartmentalModel(); evaluate at the central estimate
+# (get_central_point() also works for a Bayesian fit, where there is no $point)
+p  <- get_central_point(fit)
 ev <- solve_and_evaluate(fit, p$initial_state, p$parms)
 head(ev$evaluation)
+
+# project ten years past the fitted horizon
+ev20 <- solve_and_evaluate(fit, p$initial_state, p$parms, endpoint = 2040)
 } # }
 ```

@@ -50,7 +50,13 @@ reads the time grid, solver settings and formulas from the `fit` object.</p>
 
     <div class="section level2">
     <h2 id="ref-usage">Usage<a class="anchor" aria-label="anchor" href="#ref-usage"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">solve_and_evaluate</span><span class="op">(</span><span class="va">fit</span>, <span class="va">initial_state</span>, <span class="va">parms</span>, data_dummy <span class="op">=</span> <span class="cn">NULL</span><span class="op">)</span></span></code></pre></div>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">solve_and_evaluate</span><span class="op">(</span></span>
+<span>  <span class="va">fit</span>,</span>
+<span>  <span class="va">initial_state</span>,</span>
+<span>  <span class="va">parms</span>,</span>
+<span>  data_dummy <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  endpoint <span class="op">=</span> <span class="cn">NULL</span></span>
+<span><span class="op">)</span></span></code></pre></div>
     </div>
 
     <div class="section level2">
@@ -73,6 +79,15 @@ reads the time grid, solver settings and formulas from the `fit` object.</p>
 <dd><p>Optional dummy-data data frame; `NULL` evaluates only the
 data streams.</p></dd>
 
+
+<dt id="arg-endpoint">endpoint<a class="anchor" aria-label="anchor" href="#arg-endpoint"></a></dt>
+<dd><p>Optional end year. Extends the solve beyond the fitted
+horizon to project forward; `NULL` (default) uses the fitted endpoint. Must
+be a whole year at or after the fitted endpoint. The years the two runs
+share are unchanged. Note that time-varying `Functions` keep applying past
+the data, so the projection is only as meaningful as those formulas are
+outside the fitted window.</p></dd>
+
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
@@ -82,10 +97,14 @@ data streams.</p></dd>
     <div class="section level2">
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
     <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span> <span class="op">(</span><span class="cn">FALSE</span><span class="op">)</span> <span class="op">{</span> <span class="co"># \dontrun{</span></span></span>
-<span class="r-in"><span><span class="co"># fit from fitCompartmentalModel(); evaluate at the fitted point</span></span></span>
-<span class="r-in"><span><span class="va">p</span>  <span class="op">&lt;-</span> <span class="fu"><a href="compfit-accessors.html">get_point</a></span><span class="op">(</span><span class="va">fit</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="co"># fit from fitCompartmentalModel(); evaluate at the central estimate</span></span></span>
+<span class="r-in"><span><span class="co"># (get_central_point() also works for a Bayesian fit, where there is no $point)</span></span></span>
+<span class="r-in"><span><span class="va">p</span>  <span class="op">&lt;-</span> <span class="fu"><a href="get_central_point.html">get_central_point</a></span><span class="op">(</span><span class="va">fit</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">ev</span> <span class="op">&lt;-</span> <span class="fu">solve_and_evaluate</span><span class="op">(</span><span class="va">fit</span>, <span class="va">p</span><span class="op">$</span><span class="va">initial_state</span>, <span class="va">p</span><span class="op">$</span><span class="va">parms</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">ev</span><span class="op">$</span><span class="va">evaluation</span><span class="op">)</span></span></span>
+<span class="r-in"><span></span></span>
+<span class="r-in"><span><span class="co"># project ten years past the fitted horizon</span></span></span>
+<span class="r-in"><span><span class="va">ev20</span> <span class="op">&lt;-</span> <span class="fu">solve_and_evaluate</span><span class="op">(</span><span class="va">fit</span>, <span class="va">p</span><span class="op">$</span><span class="va">initial_state</span>, <span class="va">p</span><span class="op">$</span><span class="va">parms</span>, endpoint <span class="op">=</span> <span class="fl">2040</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="op">}</span> <span class="co"># }</span></span></span>
 </code></pre></div>
     </div>

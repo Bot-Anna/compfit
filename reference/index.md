@@ -32,6 +32,8 @@
   model sheet
 - [`fitCompartmentalModel()`](fitCompartmentalModel.md) : Fit a
   compartmental model
+- [`get_central_point()`](get_central_point.md) : Central point estimate
+  of a fit, whichever method produced it
 - [`hypercube_control()`](hypercube_control.md) : Hypercube pre-search
   settings
 - [`identifiability_report()`](identifiability_report.md) : Practical

@@ -24,5 +24,5 @@ A character path with the next free numeric suffix.
 
 ``` r
 next_plot_path(file.path(tempdir(), "Plot.pdf"))
-#> [1] "/tmp/RtmpF6wWtu/Plot_1.pdf"
+#> [1] "/tmp/Rtmp9T0NNg/Plot_1.pdf"
 ```

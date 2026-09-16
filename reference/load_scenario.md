@@ -89,7 +89,7 @@ str(sc, max.level = 1)
 #>   ..- attr(*, "spec")=
 #>   .. .. cols(
 #>   .. ..   .default = col_character(),
-#>   .. ..   `_Level1` = col_character(),
+#>   .. ..   Level_1 = col_character(),
 #>   .. ..   Others = col_character(),
 #>   .. ..   States = col_character(),
 #>   .. ..   Functions = col_character(),

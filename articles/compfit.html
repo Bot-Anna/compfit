@@ -322,30 +322,73 @@ term added straight to a compartment’s rate, one value per compartment
 does not depend on any state, such as a constant birth or immigration
 rate, which cannot be written as a <code>Linear</code>
 (<code>*X[j]</code>) or <code>Quadratic</code> (<code>*X[i]*X[j]</code>)
-term. A cell may be a number, a parameter name, an expression of
-parameters, or a <code>$</code>-prefixed time-function
-(<code>$1000*exp(-0.1*time)</code>) – the same grammar as a
-<code>Linear</code> coefficient, minus the <code>*X[j]</code>. A blank
-cell or an absent column is zero.</li>
+term. A cell may be a number, a parameter name, or an expression of
+parameters – the same grammar as a <code>Linear</code> coefficient,
+minus the <code>*X[j]</code>; for a time-varying value, define it in
+<code>Functions</code> and reference it here by name. A blank cell or an
+absent column is zero.</li>
 <li>
 <strong><code>Others</code></strong>: the time grid, with
 <code>startpoint</code>, <code>endpoint</code>, <code>partition</code>,
 and an optional <code>cutoff</code>. The axis is annual (integer years),
-and by convention the initial state sits at
-<code>startpoint - 1</code>.</li>
+and by convention the initial state sits at <code>startpoint - 1</code>.
+<code>dataCombined</code> may carry a column for that initial year
+(<code>startpoint - 1</code>); it is not fitted (t = 0 is the given
+initial state, not a snapshot) but is drawn on <code><a href="../reference/plot_fit.html">plot_fit()</a></code>
+as an open marker for context.</li>
 <li>
-<strong><code>Functions</code></strong> (optional): time-varying
-helpers, for example <code>gamma_t&lt;-gamma*(1+ramp*time)</code>.</li>
+<strong><code>Functions</code></strong> (optional): named helpers,
+for example a time-varying rate
+<code>gamma_t&lt;-gamma*(1+ramp*time)</code>. Expressions may reference
+<strong>compartments by name</strong>
+(e.g. <code>prev&lt;-I/(S+I+R)</code>), the level head counts
+<code>N&lt;level&gt;</code>/<code>total_pop</code>, parameters, and
+<code>time</code>; compartment names are rewritten to their state slot.
+The same holds for any
+<code>Linear</code>/<code>Quadratic</code>/<code>Constant</code>/<code>Pool_</code>
+coefficient (a parameter/function may not share a compartment’s
+name).</li>
 <li>
 <strong><code>Conditions</code></strong> (optional): constraints
 turned into a fitting penalty, for example
 <code>beta&gt;gamma</code>.</li>
 <li>
-<strong><code>_Level&lt;j&gt;</code></strong> (optional): which
-compartments share a mixing population (age, sex, region). The name
-after <code>_</code> is up to you (<code>_Level1</code>,
-<code>_Age1</code>, and so on), and cells take a compartment number or
-name. Leave it out and all compartments form a single population.</li>
+<strong><code>Level_&lt;id&gt;</code></strong> (optional): which
+compartments share a mixing population (age, sex, region). The id after
+<code>Level_</code> is up to you (<code>Level_1</code>,
+<code>Level_LA</code>, <code>Level_Age1</code>, and so on), and cells
+take a compartment number or name. Leave it out and all compartments
+form a single population. Each level’s head count is available in
+expressions as <code>N&lt;i&gt;</code> (by position) and as
+<code>N_&lt;id&gt;</code> (by the level’s id,
+e.g. <code>Level_Age1</code> → <code>N_Age1</code>).</li>
+<li>
+<strong><code>Mixing_&lt;id&gt;</code></strong> (optional): a
+companion to a <code>Level_&lt;id&gt;</code> column, named
+<code>Mixing_</code> plus the level’s id (<code>Mixing_1</code>,
+<code>Mixing_Age1</code>). It holds one weight per compartment defining
+that level’s <em>effective</em> mixing pool – the denominator
+<code>Nw = sum_k w_k X[k]</code> that normalises the transmission terms
+for that level, in place of the raw head count. A blank cell is the
+membership default (1 if the compartment is in the level, else 0), so an
+absent or all-blank column reproduces the plain head count. A non-zero
+weight on a compartment from <em>another</em> level pulls it into this
+level’s pool (commuting / contact-matrix mixing). Weights follow the
+coefficient grammar (number, parameter, or expression); the raw
+<code>N</code> and <code>total_pop</code> are left unchanged.</li>
+<li>
+<strong><code>Pool_&lt;id&gt;</code></strong> (optional): the
+alternative to <code>Mixing_&lt;id&gt;</code> when the pool is not a
+simple weighted sum but a <em>function of the level populations</em>. A
+single expression in the level head counts <code>N1 … Nk</code> /
+<code>total_pop</code> (plus parameters, <code>Functions</code>, and
+<code>time</code>) that becomes the whole denominator for that level,
+for example <code>N1 + c*N2/(1 + N2/K)</code> (a saturating cross-level
+pool). It is floored at a small positive value to guard against
+divide-by-zero, so keep the expression strictly positive over the time
+span. A level uses <strong>either</strong>
+<code>Mixing_&lt;id&gt;</code> or <code>Pool_&lt;id&gt;</code>, not
+both.</li>
 </ul>
 <blockquote>
 <p><strong>Reserved names.</strong> A Bayesian fit uses

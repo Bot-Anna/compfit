@@ -3,39 +3,73 @@
 On any problem it raises a single error listing every issue found, each naming
 the column/cell and what is wrong. Checks:
 fixed States/Parameters values and Linear/
-    Quadratic/Constant/Functions/Conditions
-    expressions reference only declared symbols (parameters, _0
-    aliases, the declared states – X1..Xn or named, e.g.
-    S/I/R –, functions, time), so a typo like
-    *2*-bta is caught;
+    Quadratic/Constant/Functions/Conditions/
+    Mixing_&amp;lt;level&amp;gt;/Pool_&amp;lt;level&amp;gt; expressions reference only
+    declared symbols (parameters, _0 aliases, the declared states –
+    X1..Xn or named, e.g. S/I/R, which are rewritten
+    to their state slot –, functions, time, N&amp;lt;level&amp;gt;), so a typo
+    like *2*-bta is caught; a parameter/function may not share a State
+    name;
 box priors [lo,hi] are two numbers with lo &amp;lt; hi;
 distribution priors have numeric arguments;
 no parameter/state/function name collides with a Julia keyword or a
-    codegen variable/function (t/p/X/du/dX/
-    parms, N1.., total_pop, f&amp;lt;ij&amp;gt;, g&amp;lt;ij&amp;gt;,
-    cst&amp;lt;i&amp;gt;, secOrd_i_j, or another quantity's _0 alias);
-Quadratic cells are *goto*coeff with a target in
-    1..n;
-Others has numeric startpoint/endpoint/partition.
+    codegen variable (t/p/X/du/dX/
+    parms, N1.., Nw1.., total_pop,
+    secOrd_i_j, or another quantity's _0 alias);
+every declared name (Parameters/Functions/States) is a legal identifier
+    – letters, digits, _, . – so operator characters (^,
+    (), ,, -, /, ...) that would be parsed as
+    operators rather than a name are rejected;
+Quadratic cells are *goto*coeff with a target given as a
+    compartment index (1..n) or a State name (e.g. *I*);
+each Mixing_&amp;lt;level&amp;gt; / Pool_&amp;lt;level&amp;gt; column has a matching
+    _&amp;lt;level&amp;gt; index column (Mixing holds non-negative per-compartment
+    weights; Pool holds a single pool expression, and the two are mutually
+    exclusive for a level);
+Others has numeric startpoint/endpoint/partition;
+the Functions column can be put in a working evaluation order.
+    Row order itself does not matter – a Function may be written above the
+    entries it references, and the builder sorts the column into dependency
+    order – but a name defined more than once, a
+    self-reference (x &amp;lt;- x + 1; a Function is a definition, not
+    an update), and a reference cycle have no valid order and are
+    rejected, the cycle reported as the loop it forms.
 
 "><meta property="og:description" content="Check a model-parameter sheet for common entry errors before it is built.
 On any problem it raises a single error listing every issue found, each naming
 the column/cell and what is wrong. Checks:
 fixed States/Parameters values and Linear/
-    Quadratic/Constant/Functions/Conditions
-    expressions reference only declared symbols (parameters, _0
-    aliases, the declared states – X1..Xn or named, e.g.
-    S/I/R –, functions, time), so a typo like
-    *2*-bta is caught;
+    Quadratic/Constant/Functions/Conditions/
+    Mixing_&amp;lt;level&amp;gt;/Pool_&amp;lt;level&amp;gt; expressions reference only
+    declared symbols (parameters, _0 aliases, the declared states –
+    X1..Xn or named, e.g. S/I/R, which are rewritten
+    to their state slot –, functions, time, N&amp;lt;level&amp;gt;), so a typo
+    like *2*-bta is caught; a parameter/function may not share a State
+    name;
 box priors [lo,hi] are two numbers with lo &amp;lt; hi;
 distribution priors have numeric arguments;
 no parameter/state/function name collides with a Julia keyword or a
-    codegen variable/function (t/p/X/du/dX/
-    parms, N1.., total_pop, f&amp;lt;ij&amp;gt;, g&amp;lt;ij&amp;gt;,
-    cst&amp;lt;i&amp;gt;, secOrd_i_j, or another quantity's _0 alias);
-Quadratic cells are *goto*coeff with a target in
-    1..n;
-Others has numeric startpoint/endpoint/partition.
+    codegen variable (t/p/X/du/dX/
+    parms, N1.., Nw1.., total_pop,
+    secOrd_i_j, or another quantity's _0 alias);
+every declared name (Parameters/Functions/States) is a legal identifier
+    – letters, digits, _, . – so operator characters (^,
+    (), ,, -, /, ...) that would be parsed as
+    operators rather than a name are rejected;
+Quadratic cells are *goto*coeff with a target given as a
+    compartment index (1..n) or a State name (e.g. *I*);
+each Mixing_&amp;lt;level&amp;gt; / Pool_&amp;lt;level&amp;gt; column has a matching
+    _&amp;lt;level&amp;gt; index column (Mixing holds non-negative per-compartment
+    weights; Pool holds a single pool expression, and the two are mutually
+    exclusive for a level);
+Others has numeric startpoint/endpoint/partition;
+the Functions column can be put in a working evaluation order.
+    Row order itself does not matter – a Function may be written above the
+    entries it references, and the builder sorts the column into dependency
+    order – but a name defined more than once, a
+    self-reference (x &amp;lt;- x + 1; a Function is a definition, not
+    an update), and a reference cycle have no valid order and are
+    rejected, the cycle reported as the loop it forms.
 
 "></head><body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
@@ -80,20 +114,37 @@ Others has numeric startpoint/endpoint/partition.
     <p>Check a model-parameter sheet for common entry errors before it is built.
 On any problem it raises a single error listing every issue found, each naming
 the column/cell and what is wrong. Checks:</p><ul><li><p>fixed <code>States</code>/<code>Parameters</code> values and <code>Linear</code>/
-    <code>Quadratic</code>/<code>Constant</code>/<code>Functions</code>/<code>Conditions</code>
-    expressions reference only declared symbols (parameters, <code>_0</code>
-    aliases, the declared states – <code>X1..Xn</code> or named, e.g.
-    <code>S</code>/<code>I</code>/<code>R</code> –, functions, <code>time</code>), so a typo like
-    <code>*2*-bta</code> is caught;</p></li>
+    <code>Quadratic</code>/<code>Constant</code>/<code>Functions</code>/<code>Conditions</code>/
+    <code>Mixing_&lt;level&gt;</code>/<code>Pool_&lt;level&gt;</code> expressions reference only
+    declared symbols (parameters, <code>_0</code> aliases, the declared states –
+    <code>X1..Xn</code> or named, e.g. <code>S</code>/<code>I</code>/<code>R</code>, which are rewritten
+    to their state slot –, functions, <code>time</code>, <code>N&lt;level&gt;</code>), so a typo
+    like <code>*2*-bta</code> is caught; a parameter/function may not share a State
+    name;</p></li>
 <li><p>box priors <code>[lo,hi]</code> are two numbers with <code>lo &lt; hi</code>;</p></li>
 <li><p>distribution priors have numeric arguments;</p></li>
 <li><p>no parameter/state/function name collides with a Julia keyword or a
-    codegen variable/function (<code>t</code>/<code>p</code>/<code>X</code>/<code>du</code>/<code>dX</code>/
-    <code>parms</code>, <code>N1..</code>, <code>total_pop</code>, <code>f&lt;ij&gt;</code>, <code>g&lt;ij&gt;</code>,
-    <code>cst&lt;i&gt;</code>, <code>secOrd_i_j</code>, or another quantity's <code>_0</code> alias);</p></li>
-<li><p><code>Quadratic</code> cells are <code>*goto*coeff</code> with a target in
-    <code>1..n</code>;</p></li>
-<li><p><code>Others</code> has numeric <code>startpoint</code>/<code>endpoint</code>/<code>partition</code>.</p></li>
+    codegen variable (<code>t</code>/<code>p</code>/<code>X</code>/<code>du</code>/<code>dX</code>/
+    <code>parms</code>, <code>N1..</code>, <code>Nw1..</code>, <code>total_pop</code>,
+    <code>secOrd_i_j</code>, or another quantity's <code>_0</code> alias);</p></li>
+<li><p>every declared name (Parameters/Functions/States) is a legal identifier
+    – letters, digits, <code>_</code>, <code>.</code> – so operator characters (<code>^</code>,
+    <code>()</code>, <code>,</code>, <code>-</code>, <code>/</code>, ...) that would be parsed as
+    operators rather than a name are rejected;</p></li>
+<li><p><code>Quadratic</code> cells are <code>*goto*coeff</code> with a target given as a
+    compartment index (<code>1..n</code>) or a State name (e.g. <code>*I*</code>);</p></li>
+<li><p>each <code>Mixing_&lt;level&gt;</code> / <code>Pool_&lt;level&gt;</code> column has a matching
+    <code>_&lt;level&gt;</code> index column (<code>Mixing</code> holds non-negative per-compartment
+    weights; <code>Pool</code> holds a single pool expression, and the two are mutually
+    exclusive for a level);</p></li>
+<li><p><code>Others</code> has numeric <code>startpoint</code>/<code>endpoint</code>/<code>partition</code>;</p></li>
+<li><p>the <code>Functions</code> column can be put in a working evaluation order.
+    Row order itself does not matter – a Function may be written above the
+    entries it references, and the builder sorts the column into dependency
+    order – but a name <strong>defined more than once</strong>, a
+    <strong>self-reference</strong> (<code>x &lt;- x + 1</code>; a Function is a definition, not
+    an update), and a <strong>reference cycle</strong> have no valid order and are
+    rejected, the cycle reported as the loop it forms.</p></li>
 </ul></div>
 
     <div class="section level2">
