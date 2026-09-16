@@ -12,26 +12,6 @@
 # `data_dummy` is optional; pass NULL (default) to evaluate only data streams.
 # ============================================================
 
-#' Solve the ODE and evaluate formulas
-#'
-#' Solves the model at a given `(initial_state, parms)` and evaluates every data
-#' (and optional dummy) formula on the resulting trajectory. Self-sufficient:
-#' reads the time grid, solver settings and formulas from the `fit` object.
-#'
-#' @param fit A `"compartmentalFit"` object.
-#' @param initial_state Named numeric vector of initial compartment values.
-#' @param parms Named numeric vector of parameters.
-#' @param data_dummy Optional dummy-data data frame; `NULL` evaluates only the
-#'   data streams.
-#' @return A list with `sir_out` (trajectory) and `evaluation` (formula columns).
-#' @examples
-#' \dontrun{
-#' # fit from fitCompartmentalModel(); evaluate at the fitted point
-#' p  <- get_point(fit)
-#' ev <- solve_and_evaluate(fit, p$initial_state, p$parms)
-#' head(ev$evaluation)
-#' }
-#' @export
 # Recompute the model's derived quantities on an already-solved trajectory.
 #
 # `spec` is the `derived_spec` built by compartmentalFunction() (raw Functions,
@@ -108,6 +88,23 @@
   indep[keep]
 }
 
+#' Replay a model's derived quantities on a solved trajectory
+#'
+#' Internal, but EXPORTED deliberately: [extract_code()] emits a self-contained
+#' script whose loss body calls `.derived_columns()` unqualified after a plain
+#' `library(compfit)`, so it must be reachable from outside the namespace. The
+#' call there sits inside a `tryCatch(error = NULL)` that degrades to
+#' states-and-parameters only, so un-exporting this would not raise an error in
+#' the extracted script -- it would silently drop every derived column from the
+#' loss. Not part of the stable user-facing API.
+#'
+#' @param sir_out Solved trajectory: one column per state, over the time grid.
+#' @param parms Named numeric vector of parameters.
+#' @param time Numeric time grid.
+#' @param spec The `derived_spec` built by `compartmentalFunction()`.
+#' @return A data frame of derived columns, or `NULL` if there is nothing to add.
+#' @keywords internal
+#' @export
 .derived_columns <- function(sir_out, parms, time, spec) {
   if (is.null(spec) || !length(spec$functions_raw) && !length(spec$level_members))
     return(NULL)
@@ -171,6 +168,26 @@
   as.data.frame(cols, check.names = FALSE)
 }
 
+#' Solve the ODE and evaluate formulas
+#'
+#' Solves the model at a given `(initial_state, parms)` and evaluates every data
+#' (and optional dummy) formula on the resulting trajectory. Self-sufficient:
+#' reads the time grid, solver settings and formulas from the `fit` object.
+#'
+#' @param fit A `"compartmentalFit"` object.
+#' @param initial_state Named numeric vector of initial compartment values.
+#' @param parms Named numeric vector of parameters.
+#' @param data_dummy Optional dummy-data data frame; `NULL` evaluates only the
+#'   data streams.
+#' @return A list with `sir_out` (trajectory) and `evaluation` (formula columns).
+#' @examples
+#' \dontrun{
+#' # fit from fitCompartmentalModel(); evaluate at the fitted point
+#' p  <- get_point(fit)
+#' ev <- solve_and_evaluate(fit, p$initial_state, p$parms)
+#' head(ev$evaluation)
+#' }
+#' @export
 solve_and_evaluate <- function(fit, initial_state, parms, data_dummy = NULL) {
   tg        <- fit$time_grid
   time      <- tg$time
