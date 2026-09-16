@@ -2,6 +2,29 @@
 
 ## New features
 
+* **Fits can be projected past their fitted horizon.** `solve_and_evaluate()`
+  and `plot_fit()` take an `endpoint` argument: the model is solved to that year
+  instead of the one on the sheet, so the trajectory -- and, for a Bayesian fit,
+  its bands or spaghetti lines -- continues beyond the last observation while the
+  data stays where it is. Extending the sheet instead is not an option, since a
+  longer horizon there is rejected unless the data columns are padded to match.
+  Nothing is recompiled: the generated ODE bakes in `startpoint` and `cutoff` but
+  never `endpoint`, so the same registered model is solved over a longer grid,
+  rebuilt exactly as the sheet would have built it. The years the two runs share
+  are bit-identical. Truncating is rejected -- the data would outrun the curve.
+
+  This is projection, not forecasting: a time-varying `Function` keeps applying
+  past the data (a ramp keeps ramping), so the extrapolation is only as
+  meaningful as those formulas are outside the fitted window.
+
+* **`get_central_point()` returns the central estimate of ANY successful fit** --
+  the optimiser's point estimate, or the posterior means for `method = "bayes"`.
+  `fit$point` is `NULL` for a Bayesian fit, so the documented
+  `solve_and_evaluate(fit, fit$point$initial_state, fit$point$parms)` idiom
+  silently passed `NULL` and failed there. This is the vector `plot_fit()` already
+  drew its central trajectory at; it is now reachable directly, and `get_point()`'s
+  error message points to it.
+
 * **The `Functions` column is sorted into dependency order.** Functions were
   emitted into the generated ODE verbatim, in sheet row order, and the block is
   straight-line code -- so defining a Function below something that uses it

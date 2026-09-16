@@ -79,7 +79,45 @@ get_point <- function(fit) {
   .is_fit(fit)
   if (is.null(fit$point))
     stop("This fit has no point estimate (it is a Bayesian fit, or the fit failed). ",
-         "Use get_samples(fit) / posterior_*(fit) for a Bayesian fit.")
+         "Use get_samples(fit) / posterior_*(fit) for a Bayesian fit, or ",
+         "get_central_point(fit) for the central estimate of either kind.")
+  fit$point
+}
+
+#' Central point estimate of a fit, whichever method produced it
+#'
+#' Returns `list(initial_state, parms)` on the natural scale for ANY successful
+#' fit: the optimiser's point estimate for an MLE-type fit, or the posterior
+#' means for `method = "bayes"` (where `fit$point` is `NULL`, since sampling
+#' produces a distribution rather than a point). This is the vector `plot_fit()`
+#' draws its central trajectory at, so it is also what to hand to
+#' [solve_and_evaluate()] to reproduce or extend that trajectory.
+#'
+#' For a Bayesian fit the posterior mean is a summary, not a sampled draw: it can
+#' sit in a low-probability region when the posterior is skewed or multimodal,
+#' and for a strongly non-linear model the trajectory at the mean parameters is
+#' not the mean trajectory. Use [posterior_draws()] to work draw by draw.
+#'
+#' @param fit A `"compartmentalFit"` object.
+#' @return A list with `initial_state` and `parms`, both named numeric vectors.
+#' @seealso [get_point()] (MLE-type fits only), [posterior_means()],
+#'   [solve_and_evaluate()].
+#' @examples
+#' \dontrun{
+#' p <- get_central_point(fit)
+#' ev <- solve_and_evaluate(fit, p$initial_state, p$parms)
+#' }
+#' @export
+get_central_point <- function(fit) {
+  .is_fit(fit)
+  if (identical(fit$method, "bayes")) {
+    if (is.null(fit$samples))
+      stop("This Bayesian fit has no posterior samples (the fit failed).")
+    return(.cfit_point_from_draw(fit, as.data.frame(t(posterior_means(fit)))))
+  }
+  if (is.null(fit$point))
+    stop("This fit has no point estimate (the fit failed). ",
+         "Inspect fit$error_msg and fit$best_state.")
   fit$point
 }
 

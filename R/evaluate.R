@@ -168,6 +168,56 @@
   as.data.frame(cols, check.names = FALSE)
 }
 
+# Return a copy of `fit` whose solve grid runs to a LATER end year, for
+# prediction beyond the fitted horizon.
+#
+# Only two fields carry the horizon into solve_and_evaluate(): the time grid and
+# the date column. The generated ODE bakes in `startpoint` and `cutoff` (see
+# compartmentalFunction.R), never `endpoint`, so extending the grid needs no
+# recompilation -- the same registered model is solved over a longer span. Both
+# fields are rebuilt exactly as compartmentalFunction() builds them, so an
+# extension to the fitted endpoint is a no-op and the overlapping years are
+# unchanged.
+#
+# Extending the SHEET instead is not an option: a longer horizon there is
+# rejected unless the dataCombined columns are padded to match.
+#
+# NOT a forecast method: whatever the Functions column says about `time` keeps
+# applying past the data (a ramp keeps ramping), so the extrapolation is only as
+# meaningful as those formulas are outside the fitted window.
+.extend_time_grid <- function(fit, endpoint) {
+  if (is.null(endpoint)) return(fit)
+  tg <- fit$time_grid
+  if (!is.numeric(endpoint) || length(endpoint) != 1L || !is.finite(endpoint))
+    stop("'endpoint' must be a single finite year (got: ",
+         paste(format(endpoint), collapse = ", "), ").")
+  if (endpoint != round(endpoint))
+    stop(sprintf("'endpoint' must be a whole year (got: %g). The time axis is annual.",
+                 endpoint))
+  endpoint <- as.numeric(round(endpoint))
+  if (endpoint == tg$endpoint) return(fit)
+  if (endpoint < tg$endpoint)
+    stop(sprintf(paste0(
+      "'endpoint' (%g) is before the fitted endpoint (%g); the horizon can be ",
+      "extended but not truncated, or the data would outrun the trajectory. ",
+      "Subset the result instead."), endpoint, tg$endpoint))
+
+  sp <- tg$startpoint
+  P  <- tg$partition
+  n  <- endpoint - sp + 1
+  fit$time_grid$endpoint <- endpoint
+  fit$time_grid$time     <- as.numeric(seq(0, n, length.out = P * n + 1))
+
+  # Same construction as compartmentalFunction(): the grid opens a year early, at
+  # `startpoint - 1`, to carry the initial condition.
+  start_date <- as.Date(paste0(sp - 1, "-12-31"))
+  end_date   <- as.Date(paste0(endpoint, "-12-31"))
+  total_days <- as.numeric(end_date - start_date)
+  fit$model$date <- start_date +
+    round(seq(0, total_days, length.out = P * n + 1))
+  fit
+}
+
 #' Solve the ODE and evaluate formulas
 #'
 #' Solves the model at a given `(initial_state, parms)` and evaluates every data
@@ -179,16 +229,28 @@
 #' @param parms Named numeric vector of parameters.
 #' @param data_dummy Optional dummy-data data frame; `NULL` evaluates only the
 #'   data streams.
+#' @param endpoint Optional end year. Extends the solve beyond the fitted
+#'   horizon to project forward; `NULL` (default) uses the fitted endpoint. Must
+#'   be a whole year at or after the fitted endpoint. The years the two runs
+#'   share are unchanged. Note that time-varying `Functions` keep applying past
+#'   the data, so the projection is only as meaningful as those formulas are
+#'   outside the fitted window.
 #' @return A list with `sir_out` (trajectory) and `evaluation` (formula columns).
 #' @examples
 #' \dontrun{
-#' # fit from fitCompartmentalModel(); evaluate at the fitted point
-#' p  <- get_point(fit)
+#' # fit from fitCompartmentalModel(); evaluate at the central estimate
+#' # (get_central_point() also works for a Bayesian fit, where there is no $point)
+#' p  <- get_central_point(fit)
 #' ev <- solve_and_evaluate(fit, p$initial_state, p$parms)
 #' head(ev$evaluation)
+#'
+#' # project ten years past the fitted horizon
+#' ev20 <- solve_and_evaluate(fit, p$initial_state, p$parms, endpoint = 2040)
 #' }
 #' @export
-solve_and_evaluate <- function(fit, initial_state, parms, data_dummy = NULL) {
+solve_and_evaluate <- function(fit, initial_state, parms, data_dummy = NULL,
+                               endpoint = NULL) {
+  fit       <- .extend_time_grid(fit, endpoint)
   tg        <- fit$time_grid
   time      <- tg$time
   partition <- tg$partition          # passed explicitly to evaluate_formula()

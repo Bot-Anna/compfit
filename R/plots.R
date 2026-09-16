@@ -235,7 +235,10 @@ cfit_theme <- function(base_size = 11) {
   }
 
   p +
-    .cfit_date_scale(data_points$date) +
+    # Span the data AND the model curve: with plot_fit(endpoint=) the trajectory
+    # runs past the last observation, and anchoring on the data alone would leave
+    # the projected years without tick labels.
+    .cfit_date_scale(c(data_points$date, model_eval$date)) +
     ggplot2::scale_y_continuous(
       n.breaks = 5,
       labels = function(v) format(v, big.mark = ",", scientific = FALSE,
@@ -494,6 +497,13 @@ cfit_theme <- function(base_size = 11) {
 #' @param palette Colour scheme: `"okabe"` (default, colour-blind-safe) or
 #'   `"grey"`/`"grayscale"` for monochrome output; also accepts a custom palette
 #'   list (see [cfit_palette]). `NULL` honours `options(compfit.palette=)`.
+#' @param endpoint Optional end year, to draw the fit projected beyond the
+#'   fitted horizon. The central trajectory and, for a Bayesian fit, the bands or
+#'   spaghetti lines all run to `endpoint`, while the observed data stays where
+#'   it is -- so the curve continues past the last data point with its
+#'   uncertainty fanning out. `NULL` (default) stops at the fitted endpoint. See
+#'   [solve_and_evaluate()] for the caveat about time-varying `Functions` beyond
+#'   the data.
 #' @return A list with per-stream `plots` and (if patchwork is available) a
 #'   combined `grid`, plus the plotting `code`.
 #' @examples
@@ -502,6 +512,9 @@ cfit_theme <- function(base_size = 11) {
 #' res$grid
 #' res_bw <- plot_fit(fit, palette = "grey")      # monochrome
 #' options(compfit.palette = "grey")              # ... or switch every plot
+#'
+#' # project to 2040, with predictive bands widening past the data
+#' plot_fit(fit, endpoint = 2040)$grid
 #' }
 #' @export
 plot_fit <- function(fit, bands = TRUE,
@@ -509,11 +522,18 @@ plot_fit <- function(fit, bands = TRUE,
                      n_draws = 200, n_rep = 5, spaghetti_draws = 100,
                      spaghetti_predictive = FALSE,
                      base_size = 11, ncol = NULL, data_dummy = NULL,
-                     palette = NULL) {
+                     palette = NULL, endpoint = NULL) {
   .is_fit(fit)
   if (!requireNamespace("ggplot2", quietly = TRUE))
     stop("plot_fit() requires ggplot2.")
   band_type <- match.arg(band_type)
+
+  # Projection: extend the solve grid past the fitted horizon. Everything that
+  # takes `fit` downstream (the central trajectory, the bands, the spaghetti
+  # lines) then runs on the longer grid, while the observed-data layers keep
+  # their own dates -- so the curve and its uncertainty continue past the last
+  # data point and the dots stop where the data does.
+  fit <- .extend_time_grid(fit, endpoint)
   # Colour scheme: "okabe" (default) or "grey"/"grayscale", or a custom palette
   # list. NULL honours options(compfit.palette=). Threaded into every panel.
   pal <- .cfit_resolve_palette(palette)
@@ -522,11 +542,7 @@ plot_fit <- function(fit, bands = TRUE,
     stop("plot_fit() expects solve_and_evaluate() in scope (sourced from main.R).")
   
   # Model trajectory at the central estimate (MLE point, or posterior means).
-  if (fit$method == "bayes") {
-    pe <- .cfit_point_from_draw(fit, as.data.frame(t(posterior_means(fit))))
-  } else {
-    pe <- fit$point
-  }
+  pe <- get_central_point(fit)
   model_eval <- solve_and_evaluate(fit, pe$initial_state, pe$parms, data_dummy)$evaluation
   
   data_points <- fit$data$data_points
@@ -719,7 +735,7 @@ plot_fit <- function(fit, bands = TRUE,
                            colour = pal$dummy, linewidth = 0.7) +
         # Same date scale as the fitted panels: without it these inherit
         # ggplot's default and disagree on tick positions AND label format.
-        .cfit_date_scale(data_points$date) +
+        .cfit_date_scale(c(data_points$date, model_eval$date)) +
         ggplot2::labs(title = lab, x = NULL, y = NULL) +
         cfit_theme(base_size)
     }
