@@ -45,7 +45,8 @@ The **interactive workflow is unchanged**: `source("setup.R")` (after setting
 | `test-unit-modelbuild.R` | base R | `numberOfComps` coerces `_Level` indices numerically (so `"10" > "2"`, not lexicographic); `.bounds` for named fitted quantities (midpoint `init_norm`), the **fully-fixed sheet** case (zero fitted → empty bounds, no error), and the unnamed-bounds error. |
 | `test-unit-prepare-data.R` | base R | `.prepare_data`: left/right censoring matrices (`cens_mask`/`lcens_mask`/`limit_mat`/`llimit_mat`/`inc_mask`/`linc_mask`), years×streams orientation, cumulative differencing + `cumulative_cols`, `Weight`/`Average` numeric coercion (text `"0"`→0; non-numeric→0 **with warning**), and the column-count-vs-horizon guard. |
 | `test-unit-evaluate.R` | base R | `evaluate_formula` on a synthetic trajectory: bare stocks, bare parameter names, arithmetic, `annual()` rolling integral (incl. leading `NA`s), `cumulative()` running integral. |
-| `test-unit-recover-solution.R` | base R | `.recover_solution` rebuilds natural-scale `(initial_state, parms)`; the order-contract guard trips on a name/order mismatch but is empty-safe for a fully-fixed (counterfactual) sheet where all quantities are fixed. || `test-unit-fillparams.R` | base R (+ `writexl`,`readxl` for the last block) | `.fp_rewrite_cell` (fitted→`*name=value`, fixed/unknown/NA untouched, digit rounding); `fill_params` rewrites States/Parameters and leaves structural columns intact; **optional** `write_filled_params` + `verify_filled` xlsx round-trip. |
+| `test-unit-recover-solution.R` | base R | `.recover_solution` rebuilds natural-scale `(initial_state, parms)`; the order-contract guard trips on a name/order mismatch but is empty-safe for a fully-fixed (counterfactual) sheet where all quantities are fixed. |
+| `test-unit-fillparams.R` | base R (+ `writexl`,`readxl` for the last block) | `.fp_rewrite_cell` (fitted→`*name=value`, fixed/unknown/NA untouched, digit rounding); `fill_params` rewrites States/Parameters and leaves structural columns intact; **optional** `write_filled_params` + `verify_filled` xlsx round-trip. |
 | `test-unit-extract-code.R` | base R | Guards `extract_code`'s inlined-objects list (`.xc_loss_captured`) against `lossFunction`'s formals — fails if a captured data argument is added to the loss but not to the emitted script (the class of bug that hid `lcens_mask`/`llimit_mat`). |
 | `test-unit-local-sensitivity.R` | base R | `.ls_split_point` overlays a perturbed natural-scale vector onto a base point (replaces fitted params/states, keeps fixed ones; no-op when nothing overlaps). |
 | `test-unit-sobol-report.R` | base R | `sobol_report` reporting logic on a synthetic tidy Sobol table — validity (in-`[0,1]`), the interaction column, global parameter ranking, not-converged flagging for out-of-range indices, and that a precomputed data.frame is reported without recomputing. |
@@ -60,6 +61,7 @@ The **interactive workflow is unchanged**: `source("setup.R")` (after setting
 | `test-integration-medium.R` | **Julia** | Fits the medium SIR fixture end to end; checks the function-defined initial states resolve (`X1=990`, `X2=10`, `X3=0`), the trajectory is finite/non-negative, and **S+I+R is conserved** (the quadratic flux routing is physically correct). |
 | `test-integration-sensitivity.R` | **Julia** (+ `sensitivity` for the Sobol part) | `local_sensitivity` at the fit (structure, tornado/trajectory plots) on the medium SIR, including the physical check that the conserved total `S+I+R` has ~zero sensitivity; plus a small `sobol_loss` run returning first-order/total indices. |
 | `test-integration-extract-code.R` | **Julia + scenario** | Emits the self-contained `extract_code(what="all")` script, runs it in a fresh environment, and confirms it re-registers Julia, re-fits, and **reproduces the fitted quantities** within tolerance. |
+
 ## Configuration (environment variables)
 
 | Variable | Used by | Meaning |
@@ -67,6 +69,7 @@ The **interactive workflow is unchanged**: `source("setup.R")` (after setting
 | `FITCM_ROOT` | all | Project root, if not running from it. |
 | `FITCM_SCENARIO_DIR` | integration | Folder with the input workbooks. **Defaults to the committed minimal fixture** (`inst/extdata/minimal/`, resolved via `system.file()`), so the integration tests run end-to-end wherever Julia works. Set this to point at your own scenario instead. |
 | `FITCM_COMBINED` / `FITCM_DUMMY` / `FITCM_PARAMS` | integration | Override input file names (defaults: `dataCombined.xlsx`, `dataDummy.xlsx`, `model.xlsx` → `modelParams.xlsx`). |
+
 ## Expected workbooks (for the integration tests)
 
 In `FITCM_SCENARIO_DIR`: - `dataCombined.xlsx` (or your `FITCM_COMBINED`) — required - model parameter sheet `model.xlsx` / `modelParams.xlsx` (or `FITCM_PARAMS`) — required - `dataDummy.xlsx` (or `FITCM_DUMMY`) — optional; some checks skip without it
