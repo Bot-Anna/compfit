@@ -220,6 +220,38 @@ buildStanODEFunction <- function(sir_expression,
   }
 }
 
+# .observable_lines_stan: the transformed-parameters lines defining stream i's
+# `mu<i>`. A formula using none of `grid_funs` is the single vectorised line
+# .observable_to_stan() gives, byte-identical to before. One that uses a
+# time-varying Function (`<name>__grid`, see .derived_functions_to_stan) is filled
+# point by point into `obsflux<i>` first: vector*row_vector is an outer product
+# in Stan, not R's elementwise product, while per point every operand is a real.
+.observable_lines_stan <- function(formula_str, i, comp_names, grid_funs = character(0)) {
+  f <- gsub("`", "", formula_str)
+  used <- grid_funs[vapply(grid_funs, function(nm)
+    grepl(paste0("\\b\\Q", nm, "\\E\\b"), f, perl = TRUE), logical(1))]
+  if (!length(used))
+    return(sprintf("  vector[n_years] mu%d = %s;", i, .observable_to_stan(formula_str, comp_names)))
+
+  .assert_translatable(formula_str, "data-stream Formula")
+  at_point <- function(s) {
+    for (k in order(-nchar(comp_names)))
+      s <- gsub(paste0("\\b\\Q", comp_names[k], "\\E\\b"),
+                sprintf("traj[%d, g]", k), s, perl = TRUE)
+    for (nm in used[order(-nchar(used))])
+      s <- gsub(paste0("\\b\\Q", nm, "\\E\\b"), paste0(nm, "__grid[g]"), s, perl = TRUE)
+    s
+  }
+  is_flux <- grepl("^annual\\(", f) || is_cumulative_stream(f)
+  body    <- if (is_flux) sub("^(annual|cumulative)\\((.*)\\)$", "\\2", f) else f
+  c(sprintf("  vector[n_grid] obsflux%d;", i),
+    sprintf("  for (g in 1:n_grid) obsflux%d[g] = %s;", i, at_point(body)),
+    if (is_flux)
+      sprintf("  vector[n_years] mu%d = annual_integral(obsflux%d, tgrid, partition, n_years);", i, i)
+    else
+      sprintf("  vector[n_years] mu%d = obsflux%d[annual_idx];", i, i))
+}
+
 
 # ------------------------------------------------------------
 # .stan_dist: an informative parsePrior spec -> Stan constructor + the parameter
@@ -261,6 +293,10 @@ buildStanODEFunction <- function(sir_expression,
 # defined via helper Functions resolves (earlier names are already filled at
 # index g). Returns character(0) when nothing is referenced -- the generated Stan
 # is then unchanged, so existing bayes models are unaffected.
+#
+# The vectors are declared as `<name>__grid`: transformed parameters already
+# declares each state-independent Function's bare name as its scalar init-time
+# value, and Stan rejects a second declaration in the same scope.
 .derived_functions_to_stan <- function(obs_funs, startpoint, cutoff) {
   if (!length(obs_funs)) return(character(0))
   nms  <- names(obs_funs)
@@ -273,11 +309,11 @@ buildStanODEFunction <- function(sir_expression,
     # `time` is the grid point; earlier Functions are read at the same index.
     rhs <- gsub("\\btime\\b", "tgrid[g]", rhs)
     for (prev in nms[seq_len(match(nm, nms) - 1L)])
-      rhs <- gsub(paste0("\\b\\Q", prev, "\\E\\b"), paste0(prev, "[g]"), rhs, perl = TRUE)
-    body <- c(body, sprintf("    %s[g] = %s;", nm, rhs))
+      rhs <- gsub(paste0("\\b\\Q", prev, "\\E\\b"), paste0(prev, "__grid[g]"), rhs, perl = TRUE)
+    body <- c(body, sprintf("    %s__grid[g] = %s;", nm, rhs))
   }
   c("  // ---- time-varying Functions referenced by the observables ----",
-    sprintf("  vector[n_grid] %s;", nms),
+    sprintf("  vector[n_grid] %s__grid;", nms),
     "  for (g in 1:n_grid) {",
     body,
     "  }")
@@ -468,17 +504,17 @@ buildStanModel <- function(prior_spec, like_specs, formulas, n_years, partition,
   ## --- time-varying Functions referenced by the observables ---
   # Emitted between the solve and the observables (they read `tgrid`), so a
   # Formula may name a time-varying rate exactly as the R loss allows.
+  obs_funs <- .derived_observable_functions(
+    derived_spec, formulas,
+    param_symbols = c(prior_spec$order$params_fitted, prior_spec$order$params_fixed))
   derivfun_lines <- .derived_functions_to_stan(
-    .derived_observable_functions(
-      derived_spec, formulas,
-      param_symbols = c(prior_spec$order$params_fitted, prior_spec$order$params_fixed)),
+    obs_funs,
     startpoint = if (!is.null(derived_spec)) derived_spec$startpoint else NULL,
     cutoff     = if (!is.null(derived_spec)) derived_spec$cutoff     else NULL)
 
   ## --- observables ---
-  obs_lines <- vapply(seq_along(formulas), function(i)
-    sprintf("  vector[n_years] mu%d = %s;", i, .observable_to_stan(formulas[i], comp_names)),
-    character(1))
+  obs_lines <- unlist(lapply(seq_along(formulas), function(i)
+    .observable_lines_stan(formulas[i], i, comp_names, grid_funs = names(obs_funs))))
 
   ## --- likelihood ---
   like_lines <- vapply(seq_along(formulas), function(i)

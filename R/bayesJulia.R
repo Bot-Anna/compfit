@@ -36,10 +36,41 @@
 #
 # Returns a Julia expression (string) producing a length-(endpoint-startpoint+1)
 # vector mu for that stream.
+#
+# `grid_funs` names the time-varying Functions emitted by
+# .derived_functions_to_julia() as `<name>__grid` vectors. A formula that uses
+# one is evaluated POINT BY POINT over the grid: its names are vectors, and Julia
+# defines neither Vector*Vector nor scalar-Vector, whereas R's arithmetic is
+# elementwise. Per point every operand is a scalar, so the R formula carries over
+# unchanged. A formula using none of them emits exactly the vectorised form.
 # ------------------------------------------------------------
-.observable_to_julia <- function(formula_str, n_years, partition, comp_names = NULL) {
+.observable_to_julia <- function(formula_str, n_years, partition, comp_names = NULL,
+                                 grid_funs = character(0)) {
   .assert_translatable(formula_str, "data-stream Formula")
   f <- gsub("`", "", formula_str)
+
+  used <- grid_funs[vapply(grid_funs, function(nm)
+    grepl(paste0("\\b\\Q", nm, "\\E\\b"), f, perl = TRUE), logical(1))]
+  if (length(used)) {
+    at_point <- function(s) {
+      if (is.null(comp_names) || !length(comp_names)) {
+        s <- gsub("\\bX(\\d+)\\b", "sol_grid[\\1, g_]", s)
+      } else {
+        for (k in order(-nchar(comp_names)))
+          s <- gsub(paste0("\\b\\Q", comp_names[k], "\\E\\b"),
+                    sprintf("sol_grid[%d, g_]", k), s, perl = TRUE)
+      }
+      for (nm in used[order(-nchar(used))])
+        s <- gsub(paste0("\\b\\Q", nm, "\\E\\b"), paste0(nm, "__grid[g_]"), s, perl = TRUE)
+      s
+    }
+    over_grid <- function(s) sprintf("[ (%s) for g_ in eachindex(grid_t) ]", at_point(s))
+    if (grepl("^annual\\(", f) || is_cumulative_stream(f)) {
+      inner <- sub("^(annual|cumulative)\\((.*)\\)$", "\\2", f)
+      return(sprintf("annual_integral(%s, grid_t, %d, %d)", over_grid(inner), partition, n_years))
+    }
+    return(sprintf("(%s)[annual_idx]", over_grid(f)))
+  }
 
   # Convert a compartment reference -> sol_grid[k, :]  (state k across the dense
   # grid). A compartment may be referenced by X<k> position (identity case) or by
@@ -87,6 +118,12 @@
 # model is then byte-identical to before, so existing bayes fits are unaffected.
 # NOTE: the comprehension is deliberately type-generic (no Float64 annotation) so
 # ForwardDiff Duals flow through under NUTS.
+#
+# The vectors are bound as `<name>__grid`, never the bare name: the init scope
+# already binds a state-independent Function's bare name to its scalar init-time
+# value. Inside the comprehension every assignment is `local` -- a comprehension
+# body is a closure, so a plain `gamma_t = ...` would reassign the model's
+# outer `gamma_t` rather than shadow it (and force Julia to box it).
 .derived_functions_to_julia <- function(obs_funs, startpoint, cutoff) {
   if (!length(obs_funs)) return(character(0))
   inner <- character(0)
@@ -95,16 +132,16 @@
     rhs <- gsub("\\bstartpoint\\b", as.character(startpoint), rhs)
     if (!is.null(cutoff) && length(cutoff) == 1 && !is.na(cutoff))
       rhs <- gsub("\\bcutoff\\b", as.character(cutoff), rhs)
-    inner <- c(inner, sprintf("            %s = %s", nm, rhs))
+    inner <- c(inner, sprintf("            local %s = %s", nm, rhs))
   }
   nms <- names(obs_funs)
   c("    # ---- time-varying Functions referenced by the observables ----",
     "    _derivfun_ = [ begin",
-    "            time = t_grid_; t = t_grid_",
+    "            local time = t_grid_; local t = t_grid_",
     inner,
     sprintf("            (%s,)", paste(nms, collapse = ", ")),
     "        end for t_grid_ in grid_t ]",
-    sprintf("    %s = [x_[%d] for x_ in _derivfun_]", nms, seq_along(nms)))
+    sprintf("    %s__grid = [x_[%d] for x_ in _derivfun_]", nms, seq_along(nms)))
 }
 
 
@@ -390,7 +427,8 @@ buildJuliaBayesModel <- function(prior_spec,
   obs_lines  <- character(0)
   like_lines <- character(0)
   for (i in seq_along(formulas)) {
-    mu_expr <- .observable_to_julia(formulas[i], n_years, partition, comp_names)
+    mu_expr <- .observable_to_julia(formulas[i], n_years, partition, comp_names,
+                                    grid_funs = names(obs_funs))
     obs_lines  <- c(obs_lines, sprintf("    mu%d = %s", i, mu_expr))
     like_lines <- c(like_lines, paste0("    ",
                                        .likelihood_to_julia(like_specs[[i]]$family, i, disp_vars[[i]])))
