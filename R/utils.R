@@ -453,12 +453,44 @@ reduce_expression <- function(vec) {
   return(vec)
 }
 
-# Extract the numbers from a "[x,y]" limit specification.
+# Extract the numbers from a "[x,y]" limit specification. Scientific notation
+# and Inf are recognised: without the exponent branch, "1e6" matched as "1" and
+# "6", so `[0,1e6]` silently became the box [0, 1].
+.NUM_RE <- "[+-]?(?:Inf|\\d*\\.?\\d+(?:[eE][+-]?\\d+)?)"
+
 extract_numbers <- function(text) {
   bracket_content <- regmatches(text, regexpr("\\[.*?\\]", text))[[1]]
-  matches <- gregexpr("-?\\d*\\.?\\d+", bracket_content)
+  matches <- gregexpr(.NUM_RE, bracket_content)
   numbers <- as.numeric(unlist(regmatches(bracket_content, matches)))
   return(numbers)
+}
+
+# Parse a prior's "[lo,hi]" bracket into exactly two bounds, erroring rather
+# than returning a silent NA. An omitted side ("[0,]") means infinite, as does
+# an explicit Inf. `finite_only` is for the bare box form, which becomes
+# Uniform(lo,hi) and so cannot be improper.
+.parse_prior_bracket <- function(txt, where, finite_only = FALSE) {
+  inner <- sub("^\\[", "", sub("\\]$", "", txt))
+  parts <- trimws(strsplit(inner, ",", fixed = TRUE)[[1]])
+  if (length(parts) == 1L && grepl(",$", inner)) parts <- c(parts, "")  # "[0,]"
+  bad <- function(why)
+    stop(sprintf("Bounds '%s'%s %s. Write [lo,hi] with lo < hi%s.",
+                 txt, if (identical(txt, where)) "" else sprintf(" in '%s'", where), why,
+                 if (finite_only) "; an infinite bound needs a distribution, e.g. StudentT(4,0.3,0.1)[0,Inf]"
+                 else " (Inf allowed)"),
+         call. = FALSE)
+  if (length(parts) != 2L) bad("needs exactly two comma-separated bounds")
+  val <- vapply(seq_along(parts), function(i) {
+    p <- parts[i]
+    if (!nzchar(p)) return(if (i == 1L) -Inf else Inf)
+    if (!grepl(paste0("^", .NUM_RE, "$"), p)) bad(sprintf("has a non-numeric bound '%s'", p))
+    as.numeric(p)
+  }, numeric(1))
+  if (any(is.na(val)))          bad("has a bound that is not a number")
+  if (!(val[1] < val[2]))       bad("is empty or reversed")
+  if (finite_only && !all(is.finite(val)))
+    bad("is infinite, which is not a usable search range on its own")
+  val
 }
 
 # ---- Likelihood family registry -------------------------------------------
@@ -497,9 +529,10 @@ parsePrior <- function(rhs) {
   rhs <- gsub("\\s", "", rhs)
   rhs <- sub("\\|.*$", "", rhs)   # drop any "|initial" suffix (Bayes ignores it)
   
-  # Pure box form: [a,b] -> Uniform(a,b)
+  # Pure box form: [a,b] -> Uniform(a,b). Must be finite: an improper uniform
+  # cannot be sampled, and it is the optimiser's whole search range.
   if (grepl("^\\[.*\\]$", rhs)) {
-    nums <- extract_numbers(rhs)
+    nums <- .parse_prior_bracket(rhs, rhs, finite_only = TRUE)
     return(list(kind = "estimated", dist = "Uniform",
                 args = nums, lower = nums[1], upper = nums[2],
                 start = midpoint(nums[1], nums[2])))
@@ -511,7 +544,8 @@ parsePrior <- function(rhs) {
   if (length(g) >= 3 && nzchar(g[2])) {
     dist <- g[2]
     args <- as.numeric(strsplit(g[3], ",")[[1]])
-    trunc <- if (length(g) >= 4 && nzchar(g[4])) extract_numbers(g[4]) else c(-Inf, Inf)
+    trunc <- if (length(g) >= 4 && nzchar(g[4]))
+               .parse_prior_bracket(g[4], rhs) else c(-Inf, Inf)
     # StudentT(nu, mu, sigma): location-scale Student-t (df nu, location mu,
     # scale sigma) -- takes THREE positive-df/scale arguments.
     if (dist == "StudentT") {

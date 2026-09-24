@@ -46,6 +46,13 @@ chk("non-numeric partition",    grepl("partition.*numeric", errmsg(mk(c("beta=[0
 
 th_section("structural / symbol mistakes are caught")
 chk("reversed box lo>=hi",      grepl("lower < upper", errmsg(mk(c("beta=[5,3]", "gamma=[0,1]")))))
+chk("infinite bare box rejected", grepl("infinite", errmsg(mk(c("beta=[0,Inf]", "gamma=[0,1]")))))
+chk("scientific-notation box accepted (no false positive)",
+    is.na(errmsg(mk(c("beta=[0,1e6]", "gamma=[0,1]")))))
+chk("one-sided truncation on a distribution accepted",
+    is.na(errmsg(mk(c("beta=StudentT(4,0.9,0.3)[0,Inf]", "gamma=[0,1]")))))
+chk("bad StudentT reports its own reason, not a generic expression error",
+    grepl("StudentT\\(nu, mu, sigma\\)", errmsg(mk(c("beta=StudentT(4,0.3)", "gamma=[0,1]")))))
 chk("undefined symbol in coeff", grepl("bta", errmsg(mk(c("beta=[0,1]", "gamma=[0,1]"), q1 = c("0", "*2*-bta")))))
 chk("Quadratic target out of range",
     grepl("not a valid compartment", errmsg(mk(c("beta=[0,1]", "gamma=[0,1]"), q1 = c("0", "*9*-beta")))))

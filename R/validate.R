@@ -242,6 +242,11 @@ validate_modelParams <- function(modelParams) {
       add("%s: box '%s' must be two numbers '[lo,hi]'.", where, rhs)
     else if (!(nums[1] < nums[2]))
       add("%s: box '%s' needs lower < upper.", where, rhs)
+    else if (!all(is.finite(nums)))
+      add(paste0("%s: box '%s' is infinite. A bare box becomes Uniform(lo,hi), ",
+                 "which needs finite ends; for a one-sided bound give a ",
+                 "distribution and truncate it, e.g. StudentT(4,0.3,0.1)[0,Inf]."),
+          where, rhs)
     invisible()
   }
 
@@ -271,7 +276,14 @@ validate_modelParams <- function(modelParams) {
     rhs <- sub("^[^=]*=", "", p)
     if (grepl("^\\*", p)) { check_expr(rhs, sprintf("Parameters cell '%s'", p)); next }
     spec <- tryCatch(suppressWarnings(parsePrior(rhs)), error = function(e) e)
-    if (inherits(spec, "error"))                  check_expr(rhs, sprintf("Parameters cell '%s'", p))
+    # parsePrior rejected the cell. A box keeps check_box's wording; a
+    # distribution form reports WHY instead of the generic "not a valid
+    # expression" (e.g. StudentT's argument-count message).
+    if (inherits(spec, "error") && grepl("^\\[", trimws(rhs)))
+      check_box(rhs, sprintf("Parameters cell '%s'", p))
+    else if (inherits(spec, "error") && grepl("^[A-Za-z]+\\(", trimws(rhs)))
+      add("Parameters cell '%s': %s", p, conditionMessage(spec))
+    else if (inherits(spec, "error"))             check_expr(rhs, sprintf("Parameters cell '%s'", p))
     else if (identical(spec$dist, "Uniform"))     check_box(rhs, sprintf("Parameters cell '%s'", p))
     else if (any(is.na(spec$args)))               add("Parameters cell '%s': prior has non-numeric argument(s).", p)
   }
