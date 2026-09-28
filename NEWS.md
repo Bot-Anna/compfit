@@ -2,6 +2,26 @@
 
 ## New features
 
+* **`reanchor_scenario()` extends a fitted model BACKWARDS in time.** It rewrites
+  the fit's sheet so the grid starts at an earlier `startpoint`, freezes every
+  fitted parameter at its estimate (via `fill_params()`), and pads the data with
+  BLANK columns for the new years -- blank cells are "missing" in the data-cell
+  grammar, so nothing is invented and nothing enters the loss. The initial state
+  now refers to the NEW start year, so respecify it with `states =` (a box is
+  fitted, a bare number or expression is fixed); inheriting it warns, because the
+  filled state describes the original start year. Returns a
+  `modelParams`/`dataCombined` pair for `fitCompartmentalModel()` or
+  `simulate_model()`.
+
+  This is re-anchoring, not backward integration. The model is always solved
+  FORWARD from the earlier year, so the earlier initial state is an assumption you
+  supply or estimate. Integrating the ODE in reverse would be the literal reading
+  of "project backwards", but epidemic dynamics are contracting forwards and hence
+  expanding in reverse, so a backward solve amplifies numerical error and leaves
+  the feasible region (negative compartments, susceptibles above the population).
+  Unlike `endpoint`, `startpoint` IS emitted into the generated ODE as a literal,
+  which is why this returns a sheet to rebuild rather than reusing the fit.
+
 * **The central curve of a Bayesian `plot_fit()` is now the posterior MEDIAN, and
   can be the pointwise median of the trajectory ensemble.** `get_central_point()`
   gains `summary = c("median", "mean")` and `plot_fit()` gains
