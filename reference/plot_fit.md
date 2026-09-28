@@ -18,7 +18,8 @@ plot_fit(
   ncol = NULL,
   data_dummy = NULL,
   palette = NULL,
-  endpoint = NULL
+  endpoint = NULL,
+  central = c("median", "mean", "pointwise")
 )
 ```
 
@@ -80,6 +81,21 @@ plot_fit(
   uncertainty fanning out. \`NULL\` (default) stops at the fitted
   endpoint. See \[solve_and_evaluate()\] for the caveat about
   time-varying \`Functions\` beyond the data.
+
+- central:
+
+  Which central curve to draw over the data (and over the band or
+  spaghetti cloud). \`"median"\` (default) and \`"mean"\` are PLUG-IN
+  curves: the ODE is solved once at the posterior median or mean of the
+  parameters. \`"pointwise"\` instead draws the pointwise median of the
+  trajectory ensemble, which is the 50 consistent with the band by
+  construction. The plug-in curves are genuine solutions of the ODE but
+  need not centre their own band (the parameter-to-trajectory map is
+  neither linear nor monotone); the pointwise median centres it but is
+  not itself a solution, so invariants such as a conserved \`S+I+R\`
+  need not hold along it. \`"pointwise"\` costs an extra \`n_draws\`
+  solves and needs a Bayesian fit. Ignored for MLE-type fits, which have
+  one point estimate.
 
 ## Value
 

@@ -237,6 +237,8 @@ GPL-3.
   a compartmental fit
 - [`read_data_file()`](read_data_file.md) : Read a data file (csv or
   xlsx)
+- [`reanchor_scenario()`](reanchor_scenario.md) : Move a fitted model's
+  start year earlier, keeping its parameter estimates
 - [`registerJuliaODEFunction()`](registerJuliaODEFunction.md) : Register
   the ODE function in Julia
 - [`reload_fit()`](reload_fit.md) : Reload a fit (optionally

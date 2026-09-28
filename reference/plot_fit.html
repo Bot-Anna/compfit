@@ -59,7 +59,8 @@
 <span>  ncol <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  data_dummy <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  palette <span class="op">=</span> <span class="cn">NULL</span>,</span>
-<span>  endpoint <span class="op">=</span> <span class="cn">NULL</span></span>
+<span>  endpoint <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  central <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"median"</span>, <span class="st">"mean"</span>, <span class="st">"pointwise"</span><span class="op">)</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
 
@@ -122,6 +123,21 @@ it is – so the curve continues past the last data point with its
 uncertainty fanning out. `NULL` (default) stops at the fitted endpoint. See
 [solve_and_evaluate()] for the caveat about time-varying `Functions` beyond
 the data.</p></dd>
+
+
+<dt id="arg-central">central<a class="anchor" aria-label="anchor" href="#arg-central"></a></dt>
+<dd><p>Which central curve to draw over the data (and over the band or
+spaghetti cloud). `"median"` (default) and `"mean"` are PLUG-IN curves: the
+ODE is solved once at the posterior median or mean of the parameters.
+`"pointwise"` instead draws the pointwise median of the trajectory ensemble,
+which is the 50<!-- % quantile of the same draws a band summarises, so the line is -->
+consistent with the band by construction. The plug-in curves are genuine
+solutions of the ODE but need not centre their own band (the
+parameter-to-trajectory map is neither linear nor monotone); the pointwise
+median centres it but is not itself a solution, so invariants such as a
+conserved `S+I+R` need not hold along it. `"pointwise"` costs an extra
+`n_draws` solves and needs a Bayesian fit. Ignored for MLE-type fits, which
+have one point estimate.</p></dd>
 
 </dl></div>
     <div class="section level2">

@@ -11,7 +11,7 @@ that trajectory.
 ## Usage
 
 ``` r
-get_central_point(fit)
+get_central_point(fit, summary = c("median", "mean"))
 ```
 
 ## Arguments
@@ -19,6 +19,15 @@ get_central_point(fit)
 - fit:
 
   A \`"compartmentalFit"\` object.
+
+- summary:
+
+  For a Bayesian fit, which posterior summary to use: \`"median"\` (the
+  default) or \`"mean"\`. The median matches \[save_scenario()\]'s own
+  \`summary\` argument and the counterfactual reference, is invariant
+  under monotone reparameterisation, and is not dragged into a tail by a
+  skewed or funnel-shaped posterior. Ignored for MLE-type fits, which
+  have a single point estimate.
 
 ## Value
 

@@ -4,6 +4,63 @@
 
 ### New features
 
+- **[`reanchor_scenario()`](../reference/reanchor_scenario.md) extends a
+  fitted model BACKWARDS in time.** It rewrites the fit’s sheet so the
+  grid starts at an earlier `startpoint`, freezes every fitted parameter
+  at its estimate (via [`fill_params()`](../reference/fill_params.md)),
+  and pads the data with BLANK columns for the new years – blank cells
+  are “missing” in the data-cell grammar, so nothing is invented and
+  nothing enters the loss. The initial state now refers to the NEW start
+  year, so respecify it with `states =` (a box is fitted, a bare number
+  or expression is fixed); inheriting it warns, because the filled state
+  describes the original start year. Returns a
+  `modelParams`/`dataCombined` pair for
+  [`fitCompartmentalModel()`](../reference/fitCompartmentalModel.md) or
+  [`simulate_model()`](../reference/simulate_model.md).
+
+  This is re-anchoring, not backward integration. The model is always
+  solved FORWARD from the earlier year, so the earlier initial state is
+  an assumption you supply or estimate. Integrating the ODE in reverse
+  would be the literal reading of “project backwards”, but epidemic
+  dynamics are contracting forwards and hence expanding in reverse, so a
+  backward solve amplifies numerical error and leaves the feasible
+  region (negative compartments, susceptibles above the population).
+  Unlike `endpoint`, `startpoint` IS emitted into the generated ODE as a
+  literal, which is why this returns a sheet to rebuild rather than
+  reusing the fit.
+
+- **The central curve of a Bayesian
+  [`plot_fit()`](../reference/plot_fit.md) is now the posterior MEDIAN,
+  and can be the pointwise median of the trajectory ensemble.**
+  [`get_central_point()`](../reference/get_central_point.md) gains
+  `summary = c("median", "mean")` and
+  [`plot_fit()`](../reference/plot_fit.md) gains
+  `central = c("median", "mean", "pointwise")`. Both previously used the
+  mean only, which disagreed with `save_scenario()`’s own
+  `summary = "median"` default and with the counterfactual reference;
+  the median is also invariant under monotone reparameterisation and is
+  not dragged into a tail by a skewed or funnel-shaped posterior (a
+  `sigma`-to-zero funnel makes a mean meaningless).
+
+  `"median"` and `"mean"` are PLUG-IN curves: solve the ODE once at that
+  summary of the draws. A band is a different object – the 2.5%/97.5%
+  quantiles of every draw’s output at each time point – and the two
+  coincide only where the parameter-to-trajectory map is linear (means)
+  or monotone (medians), which a compartmental model is not. So a
+  plug-in line need not centre its own band. `central = "pointwise"`
+  draws the ensemble’s pointwise median instead, which is that band’s
+  50% quantile by construction. It costs an extra `n_draws` solves, and
+  it is opt-in because a pointwise median is NOT a solution of the ODE:
+  no single parameter vector produces it, so invariants such as a
+  conserved `S+I+R` need not hold along it. Band frames now carry a
+  `med` column alongside `lo`/`hi`.
+
+  **Behaviour change:** an existing Bayesian
+  [`plot_fit()`](../reference/plot_fit.md) call draws the median curve
+  rather than the mean. For a well-identified posterior the difference
+  is invisible; for a skewed one it is not. Pass `central = "mean"` for
+  the old line.
+
 - **Fits can be projected past their fitted horizon.**
   [`solve_and_evaluate()`](../reference/solve_and_evaluate.md) and
   [`plot_fit()`](../reference/plot_fit.md) take an `endpoint` argument:
