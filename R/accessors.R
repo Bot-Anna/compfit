@@ -99,6 +99,12 @@ get_point <- function(fit) {
 #' not the mean trajectory. Use [posterior_draws()] to work draw by draw.
 #'
 #' @param fit A `"compartmentalFit"` object.
+#' @param summary For a Bayesian fit, which posterior summary to use:
+#'   `"median"` (the default) or `"mean"`. The median matches
+#'   [save_scenario()]'s own `summary` argument and the counterfactual
+#'   reference, is invariant under monotone reparameterisation, and is not
+#'   dragged into a tail by a skewed or funnel-shaped posterior. Ignored for
+#'   MLE-type fits, which have a single point estimate.
 #' @return A list with `initial_state` and `parms`, both named numeric vectors.
 #' @seealso [get_point()] (MLE-type fits only), [posterior_means()],
 #'   [solve_and_evaluate()].
@@ -108,12 +114,16 @@ get_point <- function(fit) {
 #' ev <- solve_and_evaluate(fit, p$initial_state, p$parms)
 #' }
 #' @export
-get_central_point <- function(fit) {
+get_central_point <- function(fit, summary = c("median", "mean")) {
   .is_fit(fit)
+  summary <- match.arg(summary)
   if (identical(fit$method, "bayes")) {
     if (is.null(fit$samples))
       stop("This Bayesian fit has no posterior samples (the fit failed).")
-    return(.cfit_point_from_draw(fit, as.data.frame(t(posterior_means(fit)))))
+    d <- posterior_draws(fit)
+    v <- if (summary == "mean") colMeans(d, na.rm = TRUE)
+         else vapply(d, stats::median, numeric(1), na.rm = TRUE)
+    return(.cfit_point_from_draw(fit, as.data.frame(t(v))))
   }
   if (is.null(fit$point))
     stop("This fit has no point estimate (the fit failed). ",

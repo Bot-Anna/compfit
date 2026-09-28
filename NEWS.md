@@ -2,6 +2,31 @@
 
 ## New features
 
+* **The central curve of a Bayesian `plot_fit()` is now the posterior MEDIAN, and
+  can be the pointwise median of the trajectory ensemble.** `get_central_point()`
+  gains `summary = c("median", "mean")` and `plot_fit()` gains
+  `central = c("median", "mean", "pointwise")`. Both previously used the mean
+  only, which disagreed with `save_scenario()`'s own `summary = "median"` default
+  and with the counterfactual reference; the median is also invariant under
+  monotone reparameterisation and is not dragged into a tail by a skewed or
+  funnel-shaped posterior (a `sigma`-to-zero funnel makes a mean meaningless).
+
+  `"median"` and `"mean"` are PLUG-IN curves: solve the ODE once at that summary
+  of the draws. A band is a different object -- the 2.5%/97.5% quantiles of every
+  draw's output at each time point -- and the two coincide only where the
+  parameter-to-trajectory map is linear (means) or monotone (medians), which a
+  compartmental model is not. So a plug-in line need not centre its own band.
+  `central = "pointwise"` draws the ensemble's pointwise median instead, which is
+  that band's 50% quantile by construction. It costs an extra `n_draws` solves,
+  and it is opt-in because a pointwise median is NOT a solution of the ODE: no
+  single parameter vector produces it, so invariants such as a conserved `S+I+R`
+  need not hold along it. Band frames now carry a `med` column alongside
+  `lo`/`hi`.
+
+  **Behaviour change:** an existing Bayesian `plot_fit()` call draws the median
+  curve rather than the mean. For a well-identified posterior the difference is
+  invisible; for a skewed one it is not. Pass `central = "mean"` for the old line.
+
 * **Fits can be projected past their fitted horizon.** `solve_and_evaluate()`
   and `plot_fit()` take an `endpoint` argument: the model is solved to that year
   instead of the one on the sheet, so the trajectory -- and, for a Bayesian fit,

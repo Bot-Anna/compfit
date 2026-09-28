@@ -370,12 +370,41 @@ cfit_theme <- function(base_size = 11) {
     if (is.null(M)) next
     lo <- apply(M, 2, quantile, probs[1], na.rm = TRUE)
     hi <- apply(M, 2, quantile, probs[2], na.rm = TRUE)
-    df <- data.frame(date = grid_dates, lo = lo, hi = hi)
+    # `med` is the 50% quantile of the SAME ensemble the interval comes from, so
+    # plot_fit(central = "pointwise") can draw a line that is consistent with the
+    # band by construction (see .cfit_pointwise_central).
+    med <- apply(M, 2, stats::median, na.rm = TRUE)
+    df <- data.frame(date = grid_dates, lo = lo, hi = hi, med = med)
     df <- df[is.finite(df$lo) & is.finite(df$hi), ]
     if (nrow(df) > 0) bands[[st]] <- df
   }
   bands
 }
+
+# Replace each stream's plug-in curve with the POINTWISE MEDIAN of the trajectory
+# ensemble, matched on date. A plug-in curve solves the ODE once at a summary of
+# the draws; the band summarises the outputs of every draw at each time point.
+# Those agree only if the parameter -> trajectory map is linear (for means) or
+# monotone (for medians), which a compartmental model is not -- so the plug-in
+# line need not sit inside, let alone centre, its own band. The pointwise median
+# IS that band's 50% quantile.
+#
+# The trade-off, and why this is opt-in: a pointwise median is not a solution of
+# the ODE. No single parameter vector produces it, so invariants (a conserved
+# S+I+R, say) need not hold along it.
+.cfit_pointwise_central <- function(fit, model_eval, n_draws, n_rep, data_dummy) {
+  traj <- .cfit_predictive_bands(fit, n_draws = n_draws, band_type = "mean",
+                                 n_rep = n_rep, data_dummy = data_dummy)
+  if (is.null(traj)) return(model_eval)
+  for (st in intersect(names(traj), names(model_eval))) {
+    df <- traj[[st]]
+    hit <- match(df$date, model_eval$date)
+    ok  <- !is.na(hit)
+    model_eval[[st]][hit[ok]] <- df$med[ok]
+  }
+  model_eval
+}
+
 
 # ---- Spaghetti: individual joint-draw trajectories -------------------------
 # Returns a named list (per stream) of long data frames (date, value, draw) with
@@ -497,6 +526,18 @@ cfit_theme <- function(base_size = 11) {
 #' @param palette Colour scheme: `"okabe"` (default, colour-blind-safe) or
 #'   `"grey"`/`"grayscale"` for monochrome output; also accepts a custom palette
 #'   list (see [cfit_palette]). `NULL` honours `options(compfit.palette=)`.
+#' @param central Which central curve to draw over the data (and over the band or
+#'   spaghetti cloud). `"median"` (default) and `"mean"` are PLUG-IN curves: the
+#'   ODE is solved once at the posterior median or mean of the parameters.
+#'   `"pointwise"` instead draws the pointwise median of the trajectory ensemble,
+#'   which is the 50% quantile of the same draws a band summarises, so the line is
+#'   consistent with the band by construction. The plug-in curves are genuine
+#'   solutions of the ODE but need not centre their own band (the
+#'   parameter-to-trajectory map is neither linear nor monotone); the pointwise
+#'   median centres it but is not itself a solution, so invariants such as a
+#'   conserved `S+I+R` need not hold along it. `"pointwise"` costs an extra
+#'   `n_draws` solves and needs a Bayesian fit. Ignored for MLE-type fits, which
+#'   have one point estimate.
 #' @param endpoint Optional end year, to draw the fit projected beyond the
 #'   fitted horizon. The central trajectory and, for a Bayesian fit, the bands or
 #'   spaghetti lines all run to `endpoint`, while the observed data stays where
@@ -522,11 +563,13 @@ plot_fit <- function(fit, bands = TRUE,
                      n_draws = 200, n_rep = 5, spaghetti_draws = 100,
                      spaghetti_predictive = FALSE,
                      base_size = 11, ncol = NULL, data_dummy = NULL,
-                     palette = NULL, endpoint = NULL) {
+                     palette = NULL, endpoint = NULL,
+                     central = c("median", "mean", "pointwise")) {
   .is_fit(fit)
   if (!requireNamespace("ggplot2", quietly = TRUE))
     stop("plot_fit() requires ggplot2.")
   band_type <- match.arg(band_type)
+  central   <- match.arg(central)
 
   # Projection: extend the solve grid past the fitted horizon. Everything that
   # takes `fit` downstream (the central trajectory, the bands, the spaghetti
@@ -541,8 +584,10 @@ plot_fit <- function(fit, bands = TRUE,
   if (!exists("solve_and_evaluate"))
     stop("plot_fit() expects solve_and_evaluate() in scope (sourced from main.R).")
   
-  # Model trajectory at the central estimate (MLE point, or posterior means).
-  pe <- get_central_point(fit)
+  # Model trajectory at the central estimate (MLE point, or a posterior summary).
+  # "pointwise" still needs a plug-in solve first: it supplies the frame's dates
+  # and any stream the trajectory ensemble does not cover.
+  pe <- get_central_point(fit, summary = if (identical(central, "mean")) "mean" else "median")
   model_eval <- solve_and_evaluate(fit, pe$initial_state, pe$parms, data_dummy)$evaluation
   
   data_points <- fit$data$data_points
@@ -588,6 +633,19 @@ plot_fit <- function(fit, bands = TRUE,
       band_list <- .cfit_predictive_bands(
         fit, n_draws = n_draws, band_type = band_type, n_rep = n_rep,
         data_dummy = data_dummy)
+    }
+  }
+
+  # central = "pointwise": swap the plug-in curve for the ensemble's pointwise
+  # median. Needs posterior draws, so it is meaningless for an MLE fit; say so
+  # rather than silently drawing something else.
+  if (identical(central, "pointwise")) {
+    if (fit$method != "bayes") {
+      warning("central = \"pointwise\" needs posterior draws; an MLE fit has a ",
+              "single point estimate. Drawing that instead.", call. = FALSE)
+    } else {
+      model_eval <- .cfit_pointwise_central(fit, model_eval, n_draws = n_draws,
+                                            n_rep = n_rep, data_dummy = data_dummy)
     }
   }
   
