@@ -130,5 +130,28 @@ chk("discrete asymmetric uses the integer anchor",
     grepl("neg_binomial_2_lccdf(asym_val_int[k, 1]", iv_nb, fixed = TRUE))
 chk("asymmetric data is declared", grepl("matrix[n_years, n_streams] asym_val_mat;", iv_g, fixed = TRUE))
 
+th_section("empty-sampler guard (.stan_check_chains)")
+# A chain that dies mid-sampling does not make rstan::sampling() throw -- it
+# returns a stanfit with that chain empty. Without this guard the fit was
+# reported as a success and only broke later in posterior_summary().
+chk_error("all chains dead is an error",
+          compfit:::.stan_check_chains(0L, 4L))
+chk("the error names the session-level Julia conflict",
+    grepl("restart R",
+          tryCatch({ compfit:::.stan_check_chains(0L, 2L); "" },
+                   error = function(e) conditionMessage(e)), fixed = TRUE))
+chk("a partial loss warns and says how many survived",
+    grepl("Only 3 of 4 Stan chains",
+          tryCatch({ compfit:::.stan_check_chains(3L, 4L); "" },
+                   warning = function(w) conditionMessage(w)), fixed = TRUE))
+chk("a single survivor warns that rhat is meaningless",
+    grepl("rhat is meaningless",
+          tryCatch({ compfit:::.stan_check_chains(1L, 2L); "" },
+                   warning = function(w) conditionMessage(w)), fixed = TRUE))
+chk("all chains present is silent",
+    identical(withCallingHandlers(
+      { compfit:::.stan_check_chains(4L, 4L); "quiet" },
+      warning = function(w) "warned"), "quiet"))
+
 th_summary("bayes-stan")
 })

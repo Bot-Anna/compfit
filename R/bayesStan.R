@@ -220,6 +220,29 @@ buildStanODEFunction <- function(sir_expression,
   }
 }
 
+# .stan_check_chains: how many chains came back with draws, out of those asked
+# for. None -> hard error (the fit would otherwise be reported as a success and
+# only fall over later in posterior_summary()). Some -> warn, because rhat/ess
+# are then computed from fewer chains than intended, and from a single chain rhat
+# means nothing.
+.stan_check_chains <- function(n_kept, chains) {
+  if (!isTRUE(n_kept > 0L))
+    stop(sprintf(paste0(
+      "Stan sampling returned no draws: all %d chain(s) failed. Any error ",
+      "printed above it comes from the sampler itself.\n  If Julia was used ",
+      "earlier in this R session, that is a known conflict -- restart R and run ",
+      "the Stan fit in a fresh session."), chains), call. = FALSE)
+  if (n_kept < chains)
+    warning(sprintf(paste0(
+      "Only %d of %d Stan chains produced draws; the rest failed during ",
+      "sampling. rhat/ess are computed from the survivors%s."),
+      n_kept, chains,
+      if (n_kept == 1L) " and rhat is meaningless from a single chain" else ""),
+      call. = FALSE)
+  invisible(n_kept)
+}
+
+
 # .observable_lines_stan: the transformed-parameters lines defining stream i's
 # `mu<i>`. A formula using none of `grid_funs` is the single vectorised line
 # .observable_to_stan() gives, byte-identical to before. One that uses a
@@ -735,6 +758,18 @@ buildStanModel <- function(prior_spec, like_specs, formulas, n_years, partition,
   # misses them. The diagnostics are still available via posterior_report() and
   # fit$samples$n_divergent, so nothing is lost -- the fit is just silent.
   sfit <- if (quiet) suppressWarnings(suppressMessages(do_sample())) else do_sample()
+
+  # A chain that dies mid-sampling does NOT make rstan::sampling() throw: it
+  # prints its error and returns a stanfit with that chain (or every chain)
+  # empty. Left alone, the fit is reported as a success and only falls over much
+  # later in posterior_summary() ("does not contain samples"), so check here.
+  # Seen in the wild when Julia has been initialised in the same R process --
+  # `c++ exception (unknown reason)` at the first warmup transition; treat
+  # backend = "julia" and backend = "stan" as one-per-R-session for now.
+  .stan_check_chains(
+    tryCatch(sum(vapply(sfit@sim$samples, function(ch) length(ch) > 0L, logical(1))),
+             error = function(e) 0L),
+    bc$chains)
 
   # Record sampler pathologies. Warn about divergences only when not quiet (they
   # are always kept on the fit and shown by posterior_report()).
